@@ -1915,8 +1915,11 @@ static int mpam_save_mbwu_state(void *arg)
 	return 0;
 }
 
-static void mpam_init_reset_cfg(struct mpam_config *reset_cfg)
+static void mpam_init_reset_cfg(struct mpam_config *reset_cfg,
+				struct mpam_class *class)
 {
+	struct mpam_props *cprops = &class->props;
+
 	*reset_cfg = (struct mpam_config) {
 		.cpbm = ~0,
 		.mbw_pbm = ~0,
@@ -1925,7 +1928,20 @@ static void mpam_init_reset_cfg(struct mpam_config *reset_cfg)
 		.reset_cpbm = true,
 		.reset_mbw_pbm = true,
 	};
-	bitmap_fill(reset_cfg->features, MPAM_FEATURE_LAST);
+	if (cprops->cpbm_wd) {
+		reset_cfg->cpbm = GENMASK(cprops->cpbm_wd - 1, 0);
+		mpam_set_feature(mpam_feat_cpor_part, reset_cfg);
+	}
+	if (cprops->mbw_pbm_bits) {
+		reset_cfg->mbw_pbm = GENMASK(cprops->mbw_pbm_bits - 1, 0);
+		if (mpam_has_feature(mpam_feat_mbw_part, cprops))
+			mpam_set_feature(mpam_feat_mbw_part, reset_cfg);
+	}
+	if (cprops->bwa_wd) {
+		reset_cfg->mbw_max = GENMASK(15, 16 - cprops->bwa_wd);
+		if (mpam_has_feature(mpam_feat_mbw_max, cprops))
+			mpam_set_feature(mpam_feat_mbw_max, reset_cfg);
+	}
 }
 
 /*
@@ -1954,11 +1970,12 @@ static int mpam_reset_ris(void *arg)
 	struct mpam_msc_ris *ris = arg;
 	struct reprogram_ris reprogram_arg;
 	struct mpam_msc *msc = ris->vmsc->msc;
+	struct mpam_class *class = ris->vmsc->comp->class;
 
 	if (ris->in_reset_state)
 		return 0;
 
-	mpam_init_reset_cfg(&reset_cfg);
+	mpam_init_reset_cfg(&reset_cfg, class);
 	if (mpam_has_quirk(T241_FORCE_MBW_MIN_TO_ONE, msc))
 		mpam_wa_t241_force_mbw_min_to_one(&reset_cfg, &ris->props);
 
@@ -3007,7 +3024,7 @@ static void mpam_reset_component_cfg(struct mpam_component *comp)
 		return;
 
 	for (i = 0; i < mpam_partid_max + 1; i++) {
-		mpam_init_reset_cfg(&comp->cfg[i]);
+		mpam_init_reset_cfg(&comp->cfg[i], class);
 		if (mpam_has_quirk(T241_FORCE_MBW_MIN_TO_ONE, class))
 			mpam_wa_t241_force_mbw_min_to_one(&comp->cfg[i],
 							  &class->props);
