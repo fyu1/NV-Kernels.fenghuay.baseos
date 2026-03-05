@@ -1924,6 +1924,7 @@ static void mpam_init_reset_cfg(struct mpam_config *reset_cfg,
 		.cpbm = ~0,
 		.mbw_pbm = ~0,
 		.mbw_max = MPAMCFG_MBW_MAX_MAX,
+		.cmax = MPAMCFG_CMAX_CMAX,
 
 		.reset_cpbm = true,
 		.reset_mbw_pbm = true,
