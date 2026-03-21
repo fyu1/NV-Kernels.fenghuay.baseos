@@ -357,6 +357,11 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			   struct seq_file *s, void *v);
 
+int rdtgroup_partition_control_show(struct kernfs_open_file *of,
+				    struct seq_file *s, void *v);
+ssize_t rdtgroup_partition_control_write(struct kernfs_open_file *of,
+					 char *buf, size_t nbytes, loff_t off);
+
 ssize_t rdtgroup_mba_mbps_event_write(struct kernfs_open_file *of,
 				      char *buf, size_t nbytes, loff_t off);
 

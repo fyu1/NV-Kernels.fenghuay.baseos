@@ -18,6 +18,7 @@
 #include <linux/cpu.h>
 #include <linux/kernfs.h>
 #include <linux/math.h>
+#include <linux/resctrl.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/tick.h>
@@ -758,4 +759,88 @@ checkresult:
 out:
 	rdtgroup_kn_unlock(of->kn);
 	return ret;
+}
+
+/*
+ * Weak defaults: overridden by ARM64 MPAM (mpam_resctrl.o) when linked.
+ */
+int __weak resctrl_arch_partition_control_show(u32 closid, struct seq_file *s)
+{
+	(void)closid;
+	seq_puts(s, "# partition control: not supported on this platform\n");
+	return 0;
+}
+
+ssize_t __weak resctrl_arch_partition_control_write(u32 closid, char *buf,
+						    size_t nbytes)
+{
+	(void)closid;
+	(void)buf;
+	(void)nbytes;
+	return -EOPNOTSUPP;
+}
+
+int rdtgroup_partition_control_show(struct kernfs_open_file *of,
+				    struct seq_file *s, void *v)
+{
+	struct rdtgroup *rdtgrp;
+	int ret;
+
+	rdtgrp = rdtgroup_kn_lock_live(of->kn);
+	if (!rdtgrp) {
+		rdtgroup_kn_unlock(of->kn);
+		return -ENOENT;
+	}
+
+	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
+		rdt_last_cmd_clear();
+		rdt_last_cmd_puts("Unavailable in pseudo-lock mode\n");
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+
+	cpus_read_lock();
+	ret = resctrl_arch_partition_control_show(rdtgrp->closid, s);
+	cpus_read_unlock();
+
+out_unlock:
+	rdtgroup_kn_unlock(of->kn);
+	return ret;
+}
+
+ssize_t rdtgroup_partition_control_write(struct kernfs_open_file *of,
+					 char *buf, size_t nbytes, loff_t off)
+{
+	struct rdtgroup *rdtgrp;
+	ssize_t ret;
+
+	if (nbytes == 0 || buf[nbytes - 1] != '\n')
+		return -EINVAL;
+	buf[nbytes - 1] = '\0';
+
+	rdtgrp = rdtgroup_kn_lock_live(of->kn);
+	if (!rdtgrp) {
+		rdtgroup_kn_unlock(of->kn);
+		return -ENOENT;
+	}
+
+	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
+		rdt_last_cmd_clear();
+		rdt_last_cmd_puts("Unavailable in pseudo-lock mode\n");
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+
+	rdt_last_cmd_clear();
+
+	cpus_read_lock();
+	ret = resctrl_arch_partition_control_write(rdtgrp->closid, buf, nbytes);
+	cpus_read_unlock();
+
+out_unlock:
+	rdtgroup_kn_unlock(of->kn);
+
+	if (ret < 0)
+		return ret;
+	return nbytes;
 }

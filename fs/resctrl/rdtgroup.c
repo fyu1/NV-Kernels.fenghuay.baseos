@@ -846,9 +846,13 @@ static ssize_t rdtgroup_tasks_write(struct kernfs_open_file *of,
 		pid_str = strim(strsep(&buf, ","));
 
 		is_iommu = string_is_iommu_group(pid_str, &iommu_group_id);
-		if (is_iommu)
+		if (is_iommu) {
 			ret = rdtgroup_move_iommu(iommu_group_id, rdtgrp, of);
-		else if (kstrtoint(pid_str, 0, &pid)) {
+			if (ret)
+				break;
+			continue;
+		}
+		if (kstrtoint(pid_str, 0, &pid)) {
 			rdt_last_cmd_printf("Task list parsing error pid %s\n", pid_str);
 			ret = -EINVAL;
 			break;
@@ -2186,6 +2190,14 @@ static struct rftype res_common_files[] = {
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.write		= rdtgroup_schemata_write,
 		.seq_show	= rdtgroup_schemata_show,
+		.fflags		= RFTYPE_CTRL_BASE,
+	},
+	{
+		.name		= "config",
+		.mode		= 0644,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.write		= rdtgroup_partition_control_write,
+		.seq_show	= rdtgroup_partition_control_show,
 		.fflags		= RFTYPE_CTRL_BASE,
 	},
 	{
