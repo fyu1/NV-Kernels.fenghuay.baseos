@@ -3278,16 +3278,8 @@ void mpam_reset_component_locked(struct mpam_component *comp)
 
 		list_for_each_entry_srcu(ris, &vmsc->ris, vmsc_list,
 					 srcu_read_lock_held(&mpam_srcu)) {
-			/*
-			 * Always push mpam_init_reset_cfg() to hardware. When
-			 * in_reset_state is true, mpam_reset_ris() returns early and
-			 * mpam_reprogram_ris() is skipped — but software may have been
-			 * changed since (e.g. resctrl schemata). Then umount only updates
-			 * comp->cfg in mpam_reset_component_cfg() and CPBM in the MSC
-			 * stays at the last programmed value (e.g. 0xf for PARTID 0).
-			 */
-			ris->in_reset_state = false;
-			mpam_touch_msc(msc, mpam_reset_ris, ris);
+			if (!ris->in_reset_state)
+				mpam_touch_msc(msc, mpam_reset_ris, ris);
 			ris->in_reset_state = true;
 		}
 	}
