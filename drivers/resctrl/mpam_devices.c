@@ -1900,6 +1900,8 @@ static void mpam_init_reset_cfg(struct mpam_config *reset_cfg,
 		mpam_set_feature(mpam_feat_cmax_cmin, reset_cfg);
 		reset_cfg->cmin = 0;
 	}
+	if (mpam_has_feature(mpam_feat_mbw_prop, props))
+		mpam_set_feature(mpam_feat_mbw_prop, reset_cfg);
 }
 
 /*
