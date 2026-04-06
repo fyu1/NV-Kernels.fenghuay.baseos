@@ -1252,20 +1252,84 @@ void resctrl_arch_config_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *
 	resctrl_arch_reset_cntr(r, d, closid, rmid, cntr_id, evtid);
 }
 
+static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
+					struct mpam_resctrl_ctrl *mpam_ctrl,
+					struct mpam_props *cprops,
+					enum resctrl_ctrl_name name)
+{
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+
+	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
+	mpam_ctrl->r_ctrl.name = name;
+	INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+
+	mpam_ctrl->r_ctrl.membw.min_bw = get_mba_min(cprops);
+	mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
+	mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	class = res->class;
+	if (mpam_class_memory(class))
+		mpam_ctrl->r_ctrl.scope = RESCTRL_NODE;
+}
+
+static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
+{
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	class = res->class;
+	if (mpam_class_memory(class))
+		return RESCTRL_CTRL_NAME_MAXHLIM_NODE;
+
+	return RESCTRL_CTRL_NAME_MAXHLIM;
+}
+
+static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
+				      struct mpam_props *cprops)
+{
+	struct mpam_resctrl_ctrl *ctrl_def, *ctrl_maxhlim = NULL;
+
+	ctrl_def = kzalloc_obj(*ctrl_def);
+	if (!ctrl_def)
+		return -ENOMEM;
+
+	_mpam_resctrl_ctrl_init_mba(r, ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
+	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
+
+	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
+		ctrl_maxhlim = kzalloc_obj(*ctrl_maxhlim);
+		if (ctrl_maxhlim) {
+			enum resctrl_ctrl_name name;
+
+			name = get_ctrl_name_maxhlim(r);
+			_mpam_resctrl_ctrl_init_mba(r, ctrl_maxhlim, cprops,
+						    name);
+			list_add(&ctrl_maxhlim->r_ctrl.entry, &r->controls);
+		}
+	}
+
+	return 0;
+}
+
 static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 {
 	struct mpam_class *class = res->class;
 	struct mpam_props *cprops = &class->props;
 	struct rdt_resource *r = &res->resctrl_res;
 	struct mpam_resctrl_ctrl *mpam_ctrl;
-
-	mpam_ctrl = kzalloc_obj(*mpam_ctrl);
-	if (!mpam_ctrl)
-		return -ENOMEM;
+	int ret = 0;
 
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
+		mpam_ctrl = kzalloc_obj(*mpam_ctrl);
+		if (!mpam_ctrl)
+			return -ENOMEM;
+
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
@@ -1297,18 +1361,12 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
-		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
-		mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
-		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
-		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+		ret = mpam_resctrl_ctrl_init_mba(r, cprops);
+		if (ret)
+			return ret;
 
 		r->bw_delay_linear = true;
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-		mpam_ctrl->r_ctrl.membw.min_bw = get_mba_min(cprops);
-		mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
-		mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
-		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
-
 		r->name = "MB";
 		r->alloc_capable = true;
 		break;
@@ -1471,7 +1529,7 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	struct mpam_props *cprops;
 	struct mpam_resctrl_res *res;
 	struct mpam_resctrl_dom *dom;
-	enum mpam_device_features configured_by;
+	enum mpam_device_features configured_by = MPAM_FEATURE_LAST;
 
 	lockdep_assert_cpus_held();
 
@@ -1499,16 +1557,25 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		configured_by = mpam_feat_cpor_part;
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			configured_by = mpam_feat_mbw_max;
+		switch (ctrl->name) {
+		case RESCTRL_CTRL_NAME_DEF:
+			if (mpam_has_feature(mpam_feat_mbw_max, cprops))
+				configured_by = mpam_feat_mbw_max;
+			break;
+		case RESCTRL_CTRL_NAME_MAXHLIM:
+		case RESCTRL_CTRL_NAME_MAXHLIM_NODE:
+			configured_by = mpam_feat_mbw_max_hardlim_rw;
+			break;
+		default:
 			break;
 		}
-		fallthrough;
+		break;
 	default:
 		return resctrl_get_default_ctrlval(ctrl);
 	}
 
-	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r) ||
+	if (configured_by == MPAM_FEATURE_LAST || !r->alloc_capable ||
+	    partid >= resctrl_arch_get_num_closid(r) ||
 	    !mpam_has_feature(configured_by, cfg))
 		return resctrl_get_default_ctrlval(ctrl);
 
@@ -1517,6 +1584,8 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		return cfg->cpbm;
 	case mpam_feat_mbw_max:
 		return mbw_max_to_percent(cfg->mbw_max, cprops);
+	case mpam_feat_mbw_max_hardlim_rw:
+		return cfg->mbw_max_hardlim;
 	default:
 		return resctrl_get_default_ctrlval(ctrl);
 	}
@@ -1569,12 +1638,28 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		mpam_set_feature(mpam_feat_cpor_part, &cfg);
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
-			mpam_set_feature(mpam_feat_mbw_max, &cfg);
-			break;
+		switch (ctrl->name) {
+		case RESCTRL_CTRL_NAME_DEF:
+			if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+				cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
+				mpam_set_feature(mpam_feat_mbw_max, &cfg);
+				break;
+			}
+			return -EINVAL;
+		case RESCTRL_CTRL_NAME_MAXHLIM:
+		case RESCTRL_CTRL_NAME_MAXHLIM_NODE:
+			if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops) &&
+			    mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+				cfg.mbw_max_hardlim = cfg_val != 0;
+				mpam_set_feature(mpam_feat_mbw_max_hardlim_rw, &cfg);
+				mpam_set_feature(mpam_feat_mbw_max, &cfg);
+				break;
+			}
+			return -EINVAL;
+		default:
+			return -EINVAL;
 		}
-		fallthrough;
+		break;
 	default:
 		return -EINVAL;
 	}
