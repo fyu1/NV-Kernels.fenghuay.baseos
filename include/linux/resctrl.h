@@ -54,6 +54,7 @@ enum resctrl_res_level {
 	RDT_RESOURCE_MBA,
 	RDT_RESOURCE_SMBA,
 	RDT_RESOURCE_PERF_PKG,
+	RDT_RESOURCE_MB_HLIM,
 
 	/* Must be the last */
 	RDT_NUM_RESOURCES,
@@ -278,10 +279,13 @@ enum resctrl_scope {
  * enum resctrl_schema_fmt - The format user-space provides for a schema.
  * @RESCTRL_SCHEMA_BITMAP:	The schema is a bitmap in hex.
  * @RESCTRL_SCHEMA_RANGE:	The schema is a decimal number.
+ * @RESCTRL_SCHEMA_MB_HLIM:	Per-domain MBW max hard limit (0/1), ARM MPAM only
+ *				when MPAMF_MBW_IDR.MAX_LIM is 0b00 (HARDLIM RW).
  */
 enum resctrl_schema_fmt {
 	RESCTRL_SCHEMA_BITMAP,
 	RESCTRL_SCHEMA_RANGE,
+	RESCTRL_SCHEMA_MB_HLIM,
 };
 
 /**
@@ -408,6 +412,8 @@ static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
 		return BIT_MASK(r->cache.cbm_len) - 1;
 	case RESCTRL_SCHEMA_RANGE:
 		return r->membw.max_bw;
+	case RESCTRL_SCHEMA_MB_HLIM:
+		return 0;
 	}
 
 	return WARN_ON_ONCE(1);
