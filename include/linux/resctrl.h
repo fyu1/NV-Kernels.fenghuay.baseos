@@ -298,6 +298,8 @@ enum resctrl_ctrl_mode {
  * @no_mbw_hw:		True if the control has no MBW (mbw_max) hardware of its
  *			own. Defaults to false (hardware-backed); architectures
  *			set this for emulated controls that lack hardware.
+ * @mb_max_lim:		MPAM MAX_LIM encoding (MPAMF_MBW_IDR); invalid elsewhere
+ * @arch_has_mb_max_lim:True if mb_max_lim is supported
  *
  * With a control value "C" written to the schemata file, min_bw <= C <= max_bw,
  * the amount of resource allocated by this control is:
@@ -313,6 +315,8 @@ struct resctrl_membw {
 	enum resctrl_ctrl_unit		unit;
 	bool				mba_sc;
 	bool				no_mbw_hw;
+	u8				mb_max_lim;
+	bool				arch_has_mb_max_lim;
 };
 
 enum resctrl_scope {
