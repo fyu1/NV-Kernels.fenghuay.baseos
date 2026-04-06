@@ -1317,6 +1317,11 @@ static void mpam_resctrl_ctrl_set_mbw_status(struct resctrl_ctrl *ctrl,
 					     struct rdt_resource *r,
 					     struct mpam_props *cprops)
 {
+	if (resctrl_ctrl_maxhlim(ctrl)) {
+		ctrl->membw.no_mbw_hw = true;
+		return;
+	}
+
 	switch (ctrl->name) {
 	case RESCTRL_CTRL_NAME_DEF:
 		if (mpam_resctrl_ctrl_node(r))
@@ -1333,6 +1338,14 @@ static void mpam_resctrl_ctrl_set_mbw_status(struct resctrl_ctrl *ctrl,
 	}
 }
 
+static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
+{
+	if (mpam_resctrl_ctrl_node(r))
+		return RESCTRL_CTRL_NAME_MAXHLIM_NODE;
+
+	return RESCTRL_CTRL_NAME_MAXHLIM;
+}
+
 static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 				      struct mpam_props *cprops)
 {
@@ -1345,6 +1358,22 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 	_mpam_resctrl_ctrl_init_mba(r, ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
 	mpam_resctrl_ctrl_set_mbw_status(&ctrl_def->r_ctrl, r, cprops);
 	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
+
+	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
+		struct mpam_resctrl_ctrl *ctrl_maxhlim;
+
+		ctrl_maxhlim = kzalloc_obj(*ctrl_maxhlim);
+		if (ctrl_maxhlim) {
+			enum resctrl_ctrl_name name;
+
+			name = get_ctrl_name_maxhlim(r);
+			_mpam_resctrl_ctrl_init_mba(r, ctrl_maxhlim, cprops,
+						    name);
+			mpam_resctrl_ctrl_set_mbw_status(&ctrl_maxhlim->r_ctrl, r,
+							 cprops);
+			list_add(&ctrl_maxhlim->r_ctrl.entry, &r->controls);
+		}
+	}
 
 	if (mpam_resctrl_ctrl_node(r)) {
 		struct mpam_resctrl_ctrl *ctrl_node;
@@ -1613,6 +1642,10 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			if (mpam_has_feature(mpam_feat_mbw_max, cprops))
 				configured_by = mpam_feat_mbw_max;
 			break;
+		case RESCTRL_CTRL_NAME_MAXHLIM:
+		case RESCTRL_CTRL_NAME_MAXHLIM_NODE:
+			configured_by = mpam_feat_mbw_max_hardlim_rw;
+			break;
 		default:
 			break;
 		}
@@ -1631,6 +1664,8 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		return cfg->cpbm;
 	case mpam_feat_mbw_max:
 		return mbw_max_to_percent(cfg->mbw_max, cprops);
+	case mpam_feat_mbw_max_hardlim_rw:
+		return cfg->mbw_max_hardlim;
 	default:
 		return resctrl_get_default_ctrlval(ctrl);
 	}
@@ -1688,6 +1723,16 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		case RESCTRL_CTRL_NAME_NODE:
 			if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
 				cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
+				mpam_set_feature(mpam_feat_mbw_max, &cfg);
+				break;
+			}
+			return -EINVAL;
+		case RESCTRL_CTRL_NAME_MAXHLIM:
+		case RESCTRL_CTRL_NAME_MAXHLIM_NODE:
+			if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops) &&
+			    mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+				cfg.mbw_max_hardlim = cfg_val != 0;
+				mpam_set_feature(mpam_feat_mbw_max_hardlim_rw, &cfg);
 				mpam_set_feature(mpam_feat_mbw_max, &cfg);
 				break;
 			}
