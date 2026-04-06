@@ -1335,6 +1335,11 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
 		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
 
+		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+			mpam_ctrl->r_ctrl.membw.mb_max_lim = cprops->mbw_max_lim;
+			mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
+		}
+
 		r->name = "MB";
 		r->alloc_capable = true;
 		break;
