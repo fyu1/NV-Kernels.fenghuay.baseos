@@ -300,6 +300,7 @@ enum resctrl_scope {
 	RESCTRL_L3_CACHE = 3,
 	RESCTRL_L3_NODE,
 	RESCTRL_PACKAGE,
+	RESCTRL_NODE,
 };
 
 /**
@@ -343,17 +344,21 @@ struct resctrl_mon {
 
 /**
  * enum resctrl_ctrl_name - Suffix appended to resource name to create control name
- * @RESCTRL_CTRL_NAME_DEF:	The default suffix which is the empty
- *				string to create the default control that
- *				has the same name as the resource.
- * @RESCTRL_CTRL_NAME_MIN:	"MIN"
- * @RESCTRL_CTRL_NAME_MAX:	"MAX"
+ * @RESCTRL_CTRL_NAME_DEF:	   The default suffix which is the empty
+ *				   string to create the default control that
+ *				   has the same name as the resource.
+ * @RESCTRL_CTRL_NAME_MIN:	   "MIN"
+ * @RESCTRL_CTRL_NAME_MAX:	   "MAX"
+ * @RESCTRL_CTRL_NAME_MAXHLIM:	   "MAXHLIM"
+ * @RESCTRL_CTRL_NAME_MAXHLIM_NODE:"MAXHLIM_NODE"
  */
 enum resctrl_ctrl_name {
 	RESCTRL_CTRL_NAME_DEF,
 	RESCTRL_CTRL_NAME_MIN,
 	RESCTRL_CTRL_NAME_MAX,
-	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAX
+	RESCTRL_CTRL_NAME_MAXHLIM,
+	RESCTRL_CTRL_NAME_MAXHLIM_NODE,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAXHLIM_NODE
 };
 
 /**
@@ -472,6 +477,12 @@ struct resctrl_mon_config_info {
  */
 void resctrl_arch_sync_cpu_closid_rmid(void *info);
 
+static inline bool resctrl_ctrl_maxhlim(struct resctrl_ctrl *ctrl)
+{
+	return ctrl->name == RESCTRL_CTRL_NAME_MAXHLIM ||
+	       ctrl->name == RESCTRL_CTRL_NAME_MAXHLIM_NODE;
+}
+
 /**
  * resctrl_get_default_ctrlval() - Return the default control value for this
  *                                 control.
@@ -483,6 +494,9 @@ static inline u32 resctrl_get_default_ctrlval(struct resctrl_ctrl *ctrl)
 	case RESCTRL_CTRL_BITMAP:
 		return BIT_MASK(ctrl->cache.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
+		/* The hard-limit toggle defaults to off. */
+		if (resctrl_ctrl_maxhlim(ctrl))
+			return 0;
 		return ctrl->membw.max_bw;
 	}
 
