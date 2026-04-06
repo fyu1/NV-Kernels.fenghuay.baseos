@@ -124,6 +124,34 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 	return 0;
 }
 
+static bool hlim_validate(char *buf, u32 *data)
+{
+	int ret = kstrtou32(buf, 10, data);
+
+	if (ret || (*data != 0 && *data != 1)) {
+		rdt_last_cmd_printf("Invalid MB_HLIM value %s (expect 0 or 1)\n", buf);
+		return false;
+	}
+	return true;
+}
+
+static int parse_mb_hlim(struct rdt_parse_data *data,
+			 struct rdt_resource_final *f,
+			 struct rdt_ctrl_domain *d, struct resctrl_ctrl *ctrl)
+{
+	struct resctrl_staged_config *cfg;
+	u32 v;
+
+	if (!hlim_validate(data->buf, &v))
+		return -EINVAL;
+
+	cfg = &d->staged_config[f->conf_type];
+	cfg->new_ctrl = v;
+	cfg->have_new_ctrl = true;
+
+	return 0;
+}
+
 /*
  * Check whether a cache bit mask is valid.
  * On Intel CPUs, non-contiguous 1s value support is indicated by CPUID:
@@ -256,7 +284,8 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	parse_ctrlval = resctrl_ctrl_priv_all[ctrl->type].parser;
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP &&
-	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)) {
+	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA ||
+	     r->rid == RDT_RESOURCE_MB_HLIM)) {
 		rdt_last_cmd_puts("Cannot pseudo-lock MBA resource\n");
 		return -EINVAL;
 	}

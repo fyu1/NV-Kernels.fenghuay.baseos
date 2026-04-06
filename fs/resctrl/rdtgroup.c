@@ -1465,7 +1465,8 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
-		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)
+		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA ||
+		    r->rid == RDT_RESOURCE_MB_HLIM)
 			continue;
 		bm_ctrl = resctrl_get_cache_ctrl(r);
 		if (!bm_ctrl)
@@ -2721,6 +2722,8 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 		return RFTYPE_RES_MB;
 	case RDT_RESOURCE_PERF_PKG:
 		return RFTYPE_RES_PERF_PKG;
+	case RDT_RESOURCE_MB_HLIM:
+		return 0;
 	}
 
 	return WARN_ON_ONCE(1);
@@ -4047,6 +4050,19 @@ static void rdtgroup_init_mba(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	}
 }
 
+/* Initialize MB_HLIM resource with default hardlim off (0). */
+static void rdtgroup_init_mb_hlim(struct resctrl_ctrl *ctrl)
+{
+	struct resctrl_staged_config *cfg;
+	struct rdt_ctrl_domain *d;
+
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
+		cfg = &d->staged_config[CDP_NONE];
+		cfg->new_ctrl = 0;
+		cfg->have_new_ctrl = true;
+	}
+}
+
 /* Initialize the RDT group's allocations. */
 static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 {
@@ -4065,6 +4081,8 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 				rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
 				if (is_mba_sc(r, ctrl))
 					continue;
+			} else if (r->rid == RDT_RESOURCE_MB_HLIM) {
+				rdtgroup_init_mb_hlim(ctrl);
 			} else {
 				if (ctrl->type != RESCTRL_CTRL_BITMAP) {
 					rdt_last_cmd_puts("No cache control available\n");
