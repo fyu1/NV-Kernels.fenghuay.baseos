@@ -280,6 +280,8 @@ enum resctrl_ctrl_unit {
  *			"all" for a proportional schema. Base unit of an
  *			absolute control, for example "GBps".
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
+ * @mb_max_lim:		MPAM MAX_LIM encoding (MPAMF_MBW_IDR); invalid elsewhere
+ * @arch_has_mb_max_lim:True if mb_max_lim is supported
  *
  * With a control value "C" written to the schemata file, min_bw <= C <= max_bw,
  * the amount of resource allocated by this control is:
@@ -294,6 +296,8 @@ struct resctrl_membw {
 	u32				scale;
 	enum resctrl_ctrl_unit		unit;
 	bool				mba_sc;
+	u8				mb_max_lim;
+	bool				arch_has_mb_max_lim;
 };
 
 enum resctrl_scope {
