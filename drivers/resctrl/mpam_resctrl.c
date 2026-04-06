@@ -1269,6 +1269,12 @@ static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 	mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
 	mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
 
+	if (resctrl_ctrl_maxhlim(&mpam_ctrl->r_ctrl) &&
+	    mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+		mpam_ctrl->r_ctrl.membw.mb_max_lim = cprops->mbw_max_lim;
+		mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
+	}
+
 	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
 	class = res->class;
 	if (mpam_class_memory(class))
