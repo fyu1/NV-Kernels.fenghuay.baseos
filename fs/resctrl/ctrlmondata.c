@@ -69,6 +69,29 @@ static struct resctrl_ctrl_priv resctrl_ctrl_priv_all[] = {
 	},
 };
 
+static bool mb_maxhlim_validate(char *buf, u32 *data, struct rdt_resource *r,
+				struct resctrl_ctrl *ctrl)
+{
+	int ret;
+	u32 mb_maxhlim;
+
+	ret = kstrtou32(buf, 10, &mb_maxhlim);
+	if (ret) {
+		rdt_last_cmd_printf("Invalid MB_MAXHLIM value %s\n", buf);
+		return false;
+	}
+
+	if (mb_maxhlim != 0 && mb_maxhlim != 1) {
+		rdt_last_cmd_printf("MB_MAXHLIM value %u isn't 0/1\n",
+				    mb_maxhlim);
+		return false;
+	}
+
+	*data = mb_maxhlim;
+
+	return true;
+}
+
 /*
  * Check whether MBA bandwidth percentage value is correct. The value is
  * checked against the minimum and max bandwidth values specified by the
@@ -117,6 +140,18 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 		return -EINVAL;
 	}
 
+	/* Parse mb_maxhlim line */
+	if (resctrl_ctrl_maxhlim(ctrl)) {
+		if (!mb_maxhlim_validate(data->buf, &bw_val, r, ctrl))
+			return -EINVAL;
+
+		cfg->new_ctrl = bw_val;
+		cfg->have_new_ctrl = true;
+		cfg->staged_ctrl = data->line_ctrl;
+		return 0;
+	}
+
+	/* Parse mb line */
 	if (!bw_validate(data->buf, &bw_val, r, ctrl))
 		return -EINVAL;
 
@@ -366,6 +401,8 @@ static const char * const resctrl_ctrl_name[] = {
 	[RESCTRL_CTRL_NAME_MIN]		= "MIN",
 	[RESCTRL_CTRL_NAME_MAX]		= "MAX",
 	[RESCTRL_CTRL_NAME_NODE]	= "NODE",
+	[RESCTRL_CTRL_NAME_MAXHLIM]	= "MAXHLIM",
+	[RESCTRL_CTRL_NAME_MAXHLIM_NODE]= "MAXHLIM_NODE",
 };
 
 const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
@@ -455,16 +492,16 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 {
 	struct resctrl_ctrl *ctrl;
-	size_t total = 0;
+	size_t max = 0;
 	size_t len;
 
 	for_each_resource_ctrl(ctrl,r) {
 		len = strlen(resctrl_ctrl_name_str(ctrl->name));
 		if (len)
-			total += 1 + len;
+			max = max_t(size_t, max, 1 + len);
 	}
 
-	return total;
+	return max;
 }
 
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
@@ -580,11 +617,17 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	if (print_ctrl)
-		seq_printf(s, "%*s%s%s:", max_name_width, f->name,
-				resctrl_ctrl_is_default(ctrl) ? "" : "_",
-				resctrl_ctrl_is_default(ctrl) ?
-				 "" : resctrl_ctrl_name_str(ctrl->name));
+	if (print_ctrl) {
+		if (resctrl_ctrl_is_default(ctrl)) {
+			seq_printf(s, "%*s:", max_name_width, f->name);
+		} else {
+			char label[24];
+
+			snprintf(label, sizeof(label), "%s_%s", f->name,
+				 resctrl_ctrl_name_str(ctrl->name));
+			seq_printf(s, "%*s:", max_name_width, label);
+		}
+	}
 
 	/*
 	 * A control without MBW hardware has no values of its own; show the
