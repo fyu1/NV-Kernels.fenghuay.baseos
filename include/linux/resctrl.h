@@ -254,6 +254,8 @@ enum membw_throttle_mode {
  *			different memory bandwidths
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
  * @mb_map:		Mapping of memory B/W percentage to memory B/W delay
+ * @mb_max_lim:		MPAM MAX_LIM encoding (MPAMF_MBW_IDR); invalid elsewhere
+ * @arch_has_mb_max_lim:True if mb_max_lim is supported
  */
 struct resctrl_membw {
 	u32				min_bw;
@@ -264,6 +266,8 @@ struct resctrl_membw {
 	enum membw_throttle_mode	throttle_mode;
 	bool				mba_sc;
 	u32				*mb_map;
+	u8				mb_max_lim;
+	bool				arch_has_mb_max_lim;
 };
 
 struct resctrl_schema;
