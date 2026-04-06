@@ -635,11 +635,17 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	if (print_ctrl)
-		seq_printf(s, "%*s%s%s:", max_name_width, f->name,
-				resctrl_ctrl_is_default(ctrl) ? "" : "_",
-				resctrl_ctrl_is_default(ctrl) ?
-				 "" : resctrl_ctrl_name_str(ctrl->name));
+	if (print_ctrl) {
+		if (resctrl_ctrl_is_default(ctrl)) {
+			seq_printf(s, "%*s:", max_name_width, f->name);
+		} else {
+			char label[24];
+
+			snprintf(label, sizeof(label), "%s_%s", f->name,
+				 resctrl_ctrl_name_str(ctrl->name));
+			seq_printf(s, "%*s:", max_name_width, label);
+		}
+	}
 
 	/*
 	 * A control without MBW hardware has no values of its own; show the
