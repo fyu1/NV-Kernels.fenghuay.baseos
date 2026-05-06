@@ -43,15 +43,8 @@ static const struct scmi_mpam_proto_ops mpam_proto_ops = {
 
 static int scmi_mpam_protocol_init(const struct scmi_protocol_handle *ph)
 {
-	int ret;
-	u32 version;
-
-	ret = ph->xops->version_get(ph, &version);
-	if (ret)
-		return ret;
-
 	dev_dbg(ph->dev, "SCMI MPAM Version %d.%d\n",
-		PROTOCOL_REV_MAJOR(version), PROTOCOL_REV_MINOR(version));
+		PROTOCOL_REV_MAJOR(ph->version), PROTOCOL_REV_MINOR(ph->version));
 
 	return 0;
 }
