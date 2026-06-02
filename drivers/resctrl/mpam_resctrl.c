@@ -840,10 +840,11 @@ static bool topology_matches_l3(struct mpam_class *victim)
 {
 	int cpu, err;
 	struct mpam_component *victim_iter;
+	bool matched_once = false;
+	cpumask_var_t __free(free_cpumask_var) tmp_cpumask = CPUMASK_VAR_NULL;
 
 	lockdep_assert_cpus_held();
 
-	cpumask_var_t __free(free_cpumask_var) tmp_cpumask = CPUMASK_VAR_NULL;
 	if (!alloc_cpumask_var(&tmp_cpumask, GFP_KERNEL))
 		return false;
 
@@ -857,8 +858,11 @@ static bool topology_matches_l3(struct mpam_class *victim)
 		}
 
 		cpu = cpumask_any_and(&victim_iter->affinity, cpu_online_mask);
-		if (WARN_ON_ONCE(cpu >= nr_cpu_ids))
+		if (WARN_ON_ONCE(cpu >= nr_cpu_ids)) {
+			if (matched_once)
+				continue;
 			return false;
+		}
 
 		cpumask_clear(tmp_cpumask);
 		err = find_l3_equivalent_bitmask(cpu, tmp_cpumask);
@@ -878,6 +882,7 @@ static bool topology_matches_l3(struct mpam_class *victim)
 
 			return false;
 		}
+		matched_once = true;
 	}
 
 	return true;
@@ -1016,13 +1021,15 @@ static void mpam_resctrl_pick_mba(void)
 			continue;
 		}
 
-		if (!topology_matches_l3(class)) {
+		if (class->level == 3 && !topology_matches_l3(class)) {
 			pr_debug("class %u topology doesn't match L3\n",
 				 class->level);
 			continue;
 		}
 
-		if (!traffic_matches_l3(class)) {
+		/* Check memory at egress from L3 for MSC with L3 */
+		if (!cpumask_equal(&class->affinity, cpu_possible_mask) &&
+		    !traffic_matches_l3(class)) {
 			pr_debug("class %u traffic doesn't match L3 egress\n",
 				 class->level);
 			continue;
@@ -1152,8 +1159,9 @@ static void mpam_resctrl_pick_counters(void)
 		}
 
 		if (class_has_usable_mbwu(class) &&
-		    topology_matches_l3(class) &&
-		    traffic_matches_l3(class)) {
+		    ((class->type == MPAM_CLASS_MEMORY) ||
+		    (topology_matches_l3(class) &&
+		    traffic_matches_l3(class)))) {
 			pr_debug("class %u has usable MBWU, and matches L3 topology and traffic\n",
 				 class->level);
 
@@ -1267,6 +1275,9 @@ static int mpam_resctrl_pick_domain_id(int cpu, struct mpam_component *comp)
 	struct mpam_class *class = comp->class;
 
 	if (class->type == MPAM_CLASS_CACHE)
+		return comp->comp_id;
+
+	if (mpam_class_memory(class))
 		return comp->comp_id;
 
 	if (topology_matches_l3(class)) {
