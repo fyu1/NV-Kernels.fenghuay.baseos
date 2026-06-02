@@ -468,6 +468,11 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 				   size_t nbytes, loff_t off);
 u32 resctrl_io_alloc_closid(struct rdt_resource *r);
 
+int mbm_MB_assignments_show(struct kernfs_open_file *of, struct seq_file *s, void *v);
+
+ssize_t mbm_MB_assignments_write(struct kernfs_open_file *of, char *buf, size_t nbytes,
+				 loff_t off);
+
 #ifdef CONFIG_RESCTRL_FS_PSEUDO_LOCK
 int rdtgroup_locksetup_enter(struct rdtgroup *rdtgrp);
 
