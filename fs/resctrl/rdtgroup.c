@@ -2035,6 +2035,13 @@ static struct rftype res_common_files[] = {
 		.write		= mbm_L3_assignments_write,
 	},
 	{
+		.name		= "mbm_MB_assignments",
+		.mode		= 0644,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= mbm_MB_assignments_show,
+		.write		= mbm_MB_assignments_write,
+	},
+	{
 		.name		= "mbm_assign_mode",
 		.mode		= 0644,
 		.kf_ops		= &rdtgroup_kf_single_ops,
