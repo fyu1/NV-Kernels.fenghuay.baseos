@@ -260,6 +260,24 @@ with respect to allocation:
 			bandwidth percentages are directly applied to
 			the threads running on the core
 
+"domain_id":
+		Reports the meaning of the numeric domain identifiers used
+		in the "MB:" line of the "schemata" file and in "mon_MB_XX"
+		monitor directories. Possible values are:
+
+		"cache":
+			Each ID is an L3 cache identifier (typical on
+			platforms where MBA is backed by a cache-level MSC).
+
+		"numa":
+			Each ID is a NUMA node identifier (typical on ARM MPAM
+			platforms with a memory-level MSC above L3).
+
+		Example::
+
+			# cat /sys/fs/resctrl/info/MB/domain_id
+			numa
+
 If L3 monitoring is available there will be an "L3_MON" directory
 with the following files:
 
@@ -630,6 +648,15 @@ When monitoring is enabled all MON groups will also contain:
 	each instance of an L3 cache. Each directory contains files for the enabled
 	L3 events (e.g. "llc_occupancy", "mbm_total_bytes", and "mbm_local_bytes").
 
+	On platforms where memory bandwidth monitoring is associated with the
+	MBA/MB resource (for example ARM MPAM systems with a memory-level MSC),
+	there will be a "mon_MB_XX" directory for each MB control/monitor domain.
+	"XX" is the same domain identifier that appears in the "MB:" line of
+	"schemata". When "info/MB/domain_id" reports "numa", "XX" is a NUMA node
+	id; when it reports "cache", "XX" is an L3 cache id. Each "mon_MB_XX"
+	directory contains the MBM events enabled for that resource (for example
+	"mbm_total_bytes").
+
 	If telemetry monitoring is enabled, there will be a "mon_PERF_PKG_YY"
 	directory for each physical processor package. Each directory contains
 	files for the enabled telemetry events (e.g. "core_energy". "activity",
@@ -961,18 +988,37 @@ or
 Memory bandwidth Allocation (default mode)
 ------------------------------------------
 
-Memory b/w domain is L3 cache.
-::
+On most platforms the memory bandwidth (MBA) domain is the L3 cache and
+the numeric identifiers in the "MB:" line are L3 cache ids::
 
 	MB:<cache_id0>=bandwidth0;<cache_id1>=bandwidth1;...
+
+On ARM MPAM platforms backed by a memory-level MSC (see
+"info/MB/domain_id"), the identifiers are NUMA node ids instead::
+
+	MB:<node_id0>=bandwidth0;<node_id1>=bandwidth1;...
+
+Example on a system where MB domains are NUMA nodes::
+
+	# cat /sys/fs/resctrl/info/MB/domain_id
+	numa
+	# cat schemata
+	MB:0=100;1=100;2=100;10=100
+	L3:1=ffff;2=ffff
+
+The "domain_id" file should be read before interpreting "MB:" entries in
+"schemata" or directory names under "mon_data".
 
 Memory bandwidth Allocation specified in MiBps
 ----------------------------------------------
 
-Memory bandwidth domain is L3 cache.
-::
+When MBA domains are L3 caches::
 
 	MB:<cache_id0>=bw_MiBps0;<cache_id1>=bw_MiBps1;...
+
+When MBA domains are NUMA nodes (see "info/MB/domain_id")::
+
+	MB:<node_id0>=bw_MiBps0;<node_id1>=bw_MiBps1;...
 
 Slow Memory Bandwidth Allocation (SMBA)
 ---------------------------------------
