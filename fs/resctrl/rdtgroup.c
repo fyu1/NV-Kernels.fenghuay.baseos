@@ -1875,6 +1875,21 @@ const char *rdtgroup_name_by_closid(u32 closid)
 	return NULL;
 }
 
+__weak int resctrl_arch_mb_domain_id_show(struct rdt_resource *r, struct seq_file *seq)
+{
+	if (r->rid == RDT_RESOURCE_MBA)
+		seq_puts(seq, "cache\n");
+	return 0;
+}
+
+static int rdt_mb_domain_id_show(struct kernfs_open_file *of,
+				 struct seq_file *seq, void *v)
+{
+	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
+
+	return resctrl_arch_mb_domain_id_show(s->res, seq);
+}
+
 /* rdtgroup information files for one cache resource. */
 static struct rftype res_common_files[] = {
 	{
@@ -1971,6 +1986,13 @@ static struct rftype res_common_files[] = {
 		.mode		= 0444,
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.seq_show	= rdt_delay_linear_show,
+		.fflags		= RFTYPE_CTRL_INFO | RFTYPE_RES_MB,
+	},
+	{
+		.name		= "domain_id",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= rdt_mb_domain_id_show,
 		.fflags		= RFTYPE_CTRL_INFO | RFTYPE_RES_MB,
 	},
 	/*
