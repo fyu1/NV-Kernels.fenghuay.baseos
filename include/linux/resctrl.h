@@ -507,6 +507,18 @@ bool resctrl_arch_mbm_cntr_assign_enabled(struct rdt_resource *r);
  */
 int resctrl_arch_mbm_cntr_assign_set(struct rdt_resource *r, bool enable);
 
+/**
+ * resctrl_arch_mb_domain_id_show() - Report MB schemata domain ID semantics.
+ * @r:		MBA/MB control resource.
+ * @seq:	seq_file to write to.
+ *
+ * Prints "numa" when MB schemata IDs are NUMA node IDs, or "cache" when they
+ * are L3 cache IDs, followed by a newline.
+ *
+ * Return: 0 on success, negative errno on error.
+ */
+int resctrl_arch_mb_domain_id_show(struct rdt_resource *r, struct seq_file *seq);
+
 /*
  * Update the ctrl_val and apply this config right now.
  * Must be called on one of the domain's CPUs.

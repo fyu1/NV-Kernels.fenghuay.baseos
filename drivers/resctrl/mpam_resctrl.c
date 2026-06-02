@@ -14,6 +14,7 @@
 #include <linux/printk.h>
 #include <linux/rculist.h>
 #include <linux/resctrl.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/wait.h>
@@ -406,6 +407,27 @@ struct rdt_resource *resctrl_arch_get_resource(enum resctrl_res_level l)
 		return NULL;
 
 	return &mpam_resctrl_controls[l].resctrl_res;
+}
+
+int resctrl_arch_mb_domain_id_show(struct rdt_resource *r, struct seq_file *seq)
+{
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+	const char *type = "cache";
+
+	if (r->rid != RDT_RESOURCE_MBA)
+		return -EINVAL;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+
+	guard(srcu)(&mpam_srcu);
+	class = res->class;
+	if (mpam_class_memory(class))
+		type = "numa";
+
+	seq_printf(seq, "%s\n", type);
+
+	return 0;
 }
 
 static int resctrl_arch_mon_ctx_alloc_no_wait(enum resctrl_event_id evtid)
