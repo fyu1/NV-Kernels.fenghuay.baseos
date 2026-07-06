@@ -16,6 +16,7 @@
 #include <linux/spinlock.h>
 #include <linux/srcu.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include <asm/mpam.h>
 
@@ -399,6 +400,7 @@ struct mpam_resctrl_ctrl {
 
 struct mpam_resctrl_dom {
 	struct mpam_component		*ctrl_comp;
+	struct work_struct		mon_domain_free;
 
 	/*
 	 * There is no single mon_comp because different events may be backed
