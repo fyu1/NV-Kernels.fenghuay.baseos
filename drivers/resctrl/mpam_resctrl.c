@@ -1946,6 +1946,36 @@ free_domain:
 	return dom;
 }
 
+static bool mpam_resctrl_mbm_enabled(void)
+{
+	return resctrl_is_mon_event_enabled(QOS_L3_MBM_TOTAL_EVENT_ID) ||
+	       resctrl_is_mon_event_enabled(QOS_NODE_MBM_TOTAL_EVENT_ID) ||
+	       resctrl_is_mon_event_enabled(QOS_L3_MBM_LOCAL_EVENT_ID);
+}
+
+static void mpam_resctrl_free_mon_domain(struct work_struct *work)
+{
+	struct mpam_resctrl_dom *dom;
+	struct rdt_l3_mon_domain *d;
+
+	dom = container_of(work, struct mpam_resctrl_dom, mon_domain_free);
+	d = &dom->resctrl_mon_dom;
+
+	/*
+	 * The monitor domain's delayed work takes cpus_read_lock(), so it
+	 * cannot be drained from the CPU hotplug offline path which holds
+	 * cpus_write_lock(). Drain it here, from normal process context, then
+	 * free the monitor state and the domain.
+	 */
+	if (mpam_resctrl_mbm_enabled())
+		cancel_delayed_work_sync(&d->mbm_over);
+	if (resctrl_is_mon_event_enabled(QOS_L3_OCCUP_EVENT_ID))
+		cancel_delayed_work_sync(&d->cqm_limbo);
+
+	resctrl_offline_mon_domain_destroy(d);
+	kfree(dom);
+}
+
 static struct mpam_resctrl_dom *
 mpam_resctrl_alloc_mon_domain(unsigned int cpu, struct mpam_resctrl_res *res,
 			      struct mpam_component *comp)
@@ -1971,6 +2001,7 @@ mpam_resctrl_alloc_mon_domain(unsigned int cpu, struct mpam_resctrl_res *res,
 		return ERR_PTR(-ENOMEM);
 
 	dom->ctrl_comp = comp;
+	INIT_WORK(&dom->mon_domain_free, mpam_resctrl_free_mon_domain);
 
 	/*
 	 * Even if the monitor domain is backed by a different
@@ -2182,8 +2213,18 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 				mon_d = &dom->resctrl_mon_dom;
 				dom_empty = mpam_resctrl_offline_domain_hdr(cpu, &mon_d->hdr);
 				if (dom_empty) {
-					resctrl_offline_mon_domain(&res->resctrl_res, &mon_d->hdr);
-					kfree(dom);
+					/*
+					 * Detach the domain now, but defer
+					 * draining its workers and freeing it
+					 * to process context: the workers take
+					 * cpus_read_lock() and cannot be drained
+					 * from here under cpus_write_lock().
+					 */
+					if (resctrl_offline_mon_domain_prepare(&res->resctrl_res,
+									       &mon_d->hdr))
+						schedule_work(&dom->mon_domain_free);
+					else
+						kfree(dom);
 				}
 			}
 		}
