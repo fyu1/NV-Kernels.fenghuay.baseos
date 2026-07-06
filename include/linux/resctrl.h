@@ -695,6 +695,9 @@ int resctrl_arch_update_ctrl_config(struct rdt_resource *r,
 int resctrl_online_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ctrl, struct rdt_ctrl_domain *d);
 int resctrl_online_mon_domain(struct rdt_resource *r, struct rdt_domain_hdr *hdr);
 void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ctrl, struct rdt_ctrl_domain *d);
+struct rdt_l3_mon_domain *resctrl_offline_mon_domain_prepare(struct rdt_resource *r,
+							     struct rdt_domain_hdr *hdr);
+void resctrl_offline_mon_domain_destroy(struct rdt_l3_mon_domain *d);
 void resctrl_offline_mon_domain(struct rdt_resource *r, struct rdt_domain_hdr *hdr);
 void resctrl_online_cpu(unsigned int cpu);
 void resctrl_offline_cpu(unsigned int cpu);
