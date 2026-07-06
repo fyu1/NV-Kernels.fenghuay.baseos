@@ -4769,9 +4769,26 @@ void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ct
 	mutex_unlock(&rdtgroup_mutex);
 }
 
-void resctrl_offline_mon_domain(struct rdt_resource *r, struct rdt_domain_hdr *hdr)
+/**
+ * resctrl_offline_mon_domain_prepare() - Detach a monitor domain that is going
+ *                                        away.
+ * @r:		The resource the domain belongs to.
+ * @hdr:	The header of the domain to remove.
+ *
+ * Remove the domain's filesystem directories and cancel (without waiting) its
+ * overflow/limbo workers. The monitor state and the domain itself are *not*
+ * freed here: the workers take cpus_read_lock() and so cannot be drained from
+ * the CPU hotplug path that holds cpus_write_lock(). The caller must drain the
+ * workers with cancel_delayed_work_sync() and then call
+ * resctrl_offline_mon_domain_destroy() before freeing the domain.
+ *
+ * Return: the monitor domain that must be destroyed and freed once its workers
+ * have been drained, or NULL if there is nothing further to do.
+ */
+struct rdt_l3_mon_domain *resctrl_offline_mon_domain_prepare(struct rdt_resource *r,
+							     struct rdt_domain_hdr *hdr)
 {
-	struct rdt_l3_mon_domain *d;
+	struct rdt_l3_mon_domain *d = NULL;
 
 	mutex_lock(&rdtgroup_mutex);
 
@@ -4804,9 +4821,34 @@ void resctrl_offline_mon_domain(struct rdt_resource *r, struct rdt_domain_hdr *h
 		cancel_delayed_work(&d->cqm_limbo);
 	}
 
-	domain_destroy_l3_mon_state(d);
 out_unlock:
 	mutex_unlock(&rdtgroup_mutex);
+
+	return d;
+}
+
+/**
+ * resctrl_offline_mon_domain_destroy() - Free a monitor domain's state.
+ * @d:	The monitor domain previously returned by
+ * 	resctrl_offline_mon_domain_prepare().
+ *
+ * Must only be called once the domain's overflow/limbo workers have been
+ * drained (e.g. with cancel_delayed_work_sync()).
+ */
+void resctrl_offline_mon_domain_destroy(struct rdt_l3_mon_domain *d)
+{
+	mutex_lock(&rdtgroup_mutex);
+	domain_destroy_l3_mon_state(d);
+	mutex_unlock(&rdtgroup_mutex);
+}
+
+void resctrl_offline_mon_domain(struct rdt_resource *r, struct rdt_domain_hdr *hdr)
+{
+	struct rdt_l3_mon_domain *d;
+
+	d = resctrl_offline_mon_domain_prepare(r, hdr);
+	if (d)
+		resctrl_offline_mon_domain_destroy(d);
 }
 
 /**

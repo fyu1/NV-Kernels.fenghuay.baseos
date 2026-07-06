@@ -814,6 +814,14 @@ void cqm_handle_limbo(struct work_struct *work)
 	mutex_lock(&rdtgroup_mutex);
 
 	d = container_of(work, struct rdt_l3_mon_domain, cqm_limbo.work);
+	/*
+	 * The domain may be mid-teardown: its last CPU has been removed but the
+	 * work has not yet been drained (the memory is freed later from a
+	 * separate worker). An empty mask means there is nothing to do, and
+	 * would also make cpumask_any_housekeeping() below pick an invalid CPU.
+	 */
+	if (cpumask_empty(&d->hdr.cpu_mask))
+		goto out_unlock;
 
 	__check_limbo(d, false);
 
@@ -824,6 +832,7 @@ void cqm_handle_limbo(struct work_struct *work)
 					 delay);
 	}
 
+out_unlock:
 	mutex_unlock(&rdtgroup_mutex);
 	cpus_read_unlock();
 }
@@ -869,6 +878,14 @@ void mbm_handle_overflow(struct work_struct *work)
 
 	r = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 	d = container_of(work, struct rdt_l3_mon_domain, mbm_over.work);
+	/*
+	 * The domain may be mid-teardown: its last CPU has been removed but the
+	 * work has not yet been drained (the memory is freed later from a
+	 * separate worker). An empty mask means there is nothing to do, and
+	 * would also make cpumask_any_housekeeping() below pick an invalid CPU.
+	 */
+	if (cpumask_empty(&d->hdr.cpu_mask))
+		goto out_unlock;
 
 	list_for_each_entry(prgrp, &rdt_all_groups, rdtgroup_list) {
 		mbm_update(r, d, prgrp);
