@@ -1093,13 +1093,6 @@ static void mpam_resctrl_pick_mba(void)
 			 candidate_class->level);
 		res = &mpam_resctrl_controls[RDT_RESOURCE_MBA];
 		res->class = candidate_class;
-		if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw,
-				     &candidate_class->props)) {
-			struct mpam_resctrl_res *mbh =
-				&mpam_resctrl_controls[RDT_RESOURCE_MB_HLIM];
-
-			mbh->class = candidate_class;
-		}
 	}
 }
 
@@ -1265,20 +1258,65 @@ void resctrl_arch_config_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *
 	resctrl_arch_reset_rmid(r, d, closid, rmid, evtid);
 }
 
+static void _mpam_resctrl_ctrl_init_mba(struct mpam_resctrl_ctrl *mpam_ctrl,
+					struct mpam_props *cprops,
+					enum resctrl_ctrl_name name)
+{
+	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
+	mpam_ctrl->r_ctrl.name = name;
+	INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+
+	mpam_ctrl->r_ctrl.membw.min_bw = get_mba_min(cprops);
+	mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
+	mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
+
+	if (mpam_ctrl->r_ctrl.name == RESCTRL_CTRL_NAME_MAXHLIM &&
+	    mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+		mpam_ctrl->r_ctrl.membw.mb_max_lim = cprops->mbw_max_lim;
+		mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
+	}
+}
+
+static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
+				      struct mpam_props *cprops)
+{
+	struct mpam_resctrl_ctrl *ctrl_def, *ctrl_maxhlim = NULL;
+
+	ctrl_def = kzalloc_obj(*ctrl_def);
+	if (!ctrl_def)
+		return -ENOMEM;
+
+	_mpam_resctrl_ctrl_init_mba(ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
+	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
+
+	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
+		ctrl_maxhlim = kzalloc_obj(*ctrl_maxhlim);
+		if (ctrl_maxhlim) {
+			_mpam_resctrl_ctrl_init_mba(ctrl_maxhlim, cprops,
+						    RESCTRL_CTRL_NAME_MAXHLIM);
+			list_add(&ctrl_maxhlim->r_ctrl.entry, &r->controls);
+		}
+	}
+
+	return 0;
+}
+
 static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 {
 	struct mpam_class *class = res->class;
 	struct mpam_props *cprops = &class->props;
 	struct rdt_resource *r = &res->resctrl_res;
 	struct mpam_resctrl_ctrl *mpam_ctrl;
-
-	mpam_ctrl = kzalloc_obj(*mpam_ctrl);
-	if (!mpam_ctrl)
-		return -ENOMEM;
+	int ret = 0;
 
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
+		mpam_ctrl = kzalloc_obj(*mpam_ctrl);
+		if (!mpam_ctrl)
+			return -ENOMEM;
+
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
@@ -1309,37 +1347,14 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
 		r->alloc_capable = true;
 		break;
-	case RDT_RESOURCE_MB_HLIM:
-		if (!mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
-			kfree(mpam_ctrl);
-			return 0;
-		}
-		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
-		mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
-		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
-		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
-		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
-		r->alloc_capable = true;
-		r->name = "MB_HLIM";
-		break;
 	case RDT_RESOURCE_MBA:
-		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
-		mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
-		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
-		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+		kfree(mpam_ctrl);
+		ret = mpam_resctrl_ctrl_init_mba(r, cprops);
+		if (ret)
+			return ret;
 
 		r->bw_delay_linear = true;
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-		mpam_ctrl->r_ctrl.membw.min_bw = get_mba_min(cprops);
-		mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
-		mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
-		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
-
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			mpam_ctrl->r_ctrl.membw.mb_max_lim = cprops->mbw_max_lim;
-			mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
-		}
-
 		r->name = "MB";
 		r->alloc_capable = true;
 		break;
@@ -1564,11 +1579,18 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	case RDT_RESOURCE_MB_HLIM:
 		return mpam_read_mbw_max_hardlim(r, d, closid, type);
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			configured_by = mpam_feat_mbw_max;
+		switch (ctrl->name) {
+		case RESCTRL_CTRL_NAME_DEF:
+			if (mpam_has_feature(mpam_feat_mbw_max, cprops))
+				configured_by = mpam_feat_mbw_max;
+			break;
+		case RESCTRL_CTRL_NAME_MAXHLIM:
+			configured_by = mpam_feat_mbw_max_hardlim_rw;
+			break;
+		default:
 			break;
 		}
-		fallthrough;
+		break;
 	default:
 		return resctrl_get_default_ctrlval(ctrl);
 	}
@@ -1582,6 +1604,8 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		return cfg->cpbm;
 	case mpam_feat_mbw_max:
 		return mbw_max_to_percent(cfg->mbw_max, cprops);
+	case mpam_feat_mbw_max_hardlim_rw:
+		return cfg->mbw_max_hardlim;
 	default:
 		return resctrl_get_default_ctrlval(ctrl);
 	}
@@ -1634,21 +1658,27 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		mpam_set_feature(mpam_feat_cpor_part, &cfg);
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
-			mpam_set_feature(mpam_feat_mbw_max, &cfg);
-			break;
+		switch (ctrl->name) {
+		case RESCTRL_CTRL_NAME_DEF:
+			if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+				cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
+				mpam_set_feature(mpam_feat_mbw_max, &cfg);
+				break;
+			}
+			return -EINVAL;
+		case RESCTRL_CTRL_NAME_MAXHLIM:
+			if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops) &&
+			    mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+				cfg.mbw_max_hardlim = cfg_val != 0;
+				mpam_set_feature(mpam_feat_mbw_max_hardlim_rw, &cfg);
+				mpam_set_feature(mpam_feat_mbw_max, &cfg);
+				break;
+			}
+			return -EINVAL;
+		default:
+			return -EINVAL;
 		}
-		return -EINVAL;
-	case RDT_RESOURCE_MB_HLIM:
-		if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops) &&
-		    mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			cfg.mbw_max_hardlim = cfg_val != 0;
-			mpam_set_feature(mpam_feat_mbw_max_hardlim_rw, &cfg);
-			mpam_set_feature(mpam_feat_mbw_max, &cfg);
-			break;
-		}
-		fallthrough;
+		break;
 	default:
 		return -EINVAL;
 	}

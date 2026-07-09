@@ -353,12 +353,14 @@ struct resctrl_mon {
  *				has the same name as the resource.
  * @RESCTRL_CTRL_NAME_MIN:	"MIN"
  * @RESCTRL_CTRL_NAME_MAX:	"MAX"
+ * @RESCTRL_CTRL_NAME_MAXHLIM:	"MAXHLIM"
  */
 enum resctrl_ctrl_name {
 	RESCTRL_CTRL_NAME_DEF,
 	RESCTRL_CTRL_NAME_MIN,
 	RESCTRL_CTRL_NAME_MAX,
-	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAX
+	RESCTRL_CTRL_NAME_MAXHLIM,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAXHLIM
 };
 
 /**
@@ -488,6 +490,9 @@ static inline u32 resctrl_get_default_ctrlval(struct resctrl_ctrl *ctrl)
 	case RESCTRL_CTRL_BITMAP:
 		return BIT_MASK(ctrl->cache.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
+		/* The hard-limit toggle defaults to off. */
+		if (ctrl->name == RESCTRL_CTRL_NAME_MAXHLIM)
+			return 0;
 		return ctrl->membw.max_bw;
 	}
 

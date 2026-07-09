@@ -1697,11 +1697,15 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 		type = f->conf_type;
 		for_each_resource_ctrl(ctrl, r) {
 			sep = false;
-			seq_printf(s, "%*s", max_name_width, f->name);
-			if (!resctrl_ctrl_is_default(ctrl))
-				seq_printf(s, "_%s:", resctrl_ctrl_name_str(ctrl->name));
-			else
-				seq_putc(s, ':');
+			if (resctrl_ctrl_is_default(ctrl)) {
+				seq_printf(s, "%*s:", max_name_width, f->name);
+			} else {
+				char label[24];
+
+				snprintf(label, sizeof(label), "%s_%s", f->name,
+					 resctrl_ctrl_name_str(ctrl->name));
+				seq_printf(s, "%*s:", max_name_width, label);
+			}
 			list_for_each_entry(d, &ctrl->domains, hdr.list) {
 				if (sep)
 					seq_putc(s, ';');
@@ -4088,7 +4092,7 @@ static void rdtgroup_init_mba(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	}
 }
 
-/* Initialize MB_HLIM resource with default hardlim off (0). */
+/* Initialize the MB MAXHLIM control with default hardlim off (0). */
 static void rdtgroup_init_mb_hlim(struct resctrl_ctrl *ctrl)
 {
 	struct resctrl_staged_config *cfg;
@@ -4116,11 +4120,13 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 		for_each_resource_ctrl(ctrl, r) {
 			if (r->rid == RDT_RESOURCE_MBA ||
 			    r->rid == RDT_RESOURCE_SMBA) {
+				if (ctrl->name == RESCTRL_CTRL_NAME_MAXHLIM) {
+					rdtgroup_init_mb_hlim(ctrl);
+					continue;
+				}
 				rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
 				if (is_mba_sc(r, ctrl))
 					continue;
-			} else if (r->rid == RDT_RESOURCE_MB_HLIM) {
-				rdtgroup_init_mb_hlim(ctrl);
 			} else {
 				if (ctrl->type != RESCTRL_CTRL_BITMAP) {
 					rdt_last_cmd_puts("No cache control available\n");
