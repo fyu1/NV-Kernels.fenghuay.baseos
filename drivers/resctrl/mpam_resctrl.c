@@ -1258,10 +1258,14 @@ void resctrl_arch_config_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *
 	resctrl_arch_reset_rmid(r, d, closid, rmid, evtid);
 }
 
-static void _mpam_resctrl_ctrl_init_mba(struct mpam_resctrl_ctrl *mpam_ctrl,
+static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
+					struct mpam_resctrl_ctrl *mpam_ctrl,
 					struct mpam_props *cprops,
 					enum resctrl_ctrl_name name)
 {
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+
 	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 	mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
 	mpam_ctrl->r_ctrl.name = name;
@@ -1276,6 +1280,24 @@ static void _mpam_resctrl_ctrl_init_mba(struct mpam_resctrl_ctrl *mpam_ctrl,
 		mpam_ctrl->r_ctrl.membw.mb_max_lim = cprops->mbw_max_lim;
 		mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
 	}
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	class = res->class;
+	if (mpam_class_memory(class))
+		mpam_ctrl->r_ctrl.scope = RESCTRL_NODE;
+}
+
+static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
+{
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	class = res->class;
+	if (mpam_class_memory(class))
+		return RESCTRL_CTRL_NAME_MAXHLIM_NODE;
+
+	return RESCTRL_CTRL_NAME_MAXHLIM;
 }
 
 static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
@@ -1287,14 +1309,17 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 	if (!ctrl_def)
 		return -ENOMEM;
 
-	_mpam_resctrl_ctrl_init_mba(ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
+	_mpam_resctrl_ctrl_init_mba(r, ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
 	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
 
 	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
 		ctrl_maxhlim = kzalloc_obj(*ctrl_maxhlim);
 		if (ctrl_maxhlim) {
-			_mpam_resctrl_ctrl_init_mba(ctrl_maxhlim, cprops,
-						    RESCTRL_CTRL_NAME_MAXHLIM);
+			enum resctrl_ctrl_name name;
+
+			name = get_ctrl_name_maxhlim(r);
+			_mpam_resctrl_ctrl_init_mba(r, ctrl_maxhlim, cprops,
+						    name);
 			list_add(&ctrl_maxhlim->r_ctrl.entry, &r->controls);
 		}
 	}

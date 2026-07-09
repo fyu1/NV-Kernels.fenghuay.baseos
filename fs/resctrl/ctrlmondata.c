@@ -134,7 +134,7 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 	}
 
 	/* Parse mb_maxhlim line */
-	if (ctrl->name == RESCTRL_CTRL_NAME_MAXHLIM) {
+	if (resctrl_ctrl_maxhlim(ctrl)) {
 		if (!mb_maxhlim_validate(data->buf, &bw_val, r, ctrl))
 			return -EINVAL;
 
@@ -340,6 +340,7 @@ static const char * const resctrl_ctrl_name[] = {
 	[RESCTRL_CTRL_NAME_MIN]		= "MIN",
 	[RESCTRL_CTRL_NAME_MAX]		= "MAX",
 	[RESCTRL_CTRL_NAME_MAXHLIM]	= "MAXHLIM",
+	[RESCTRL_CTRL_NAME_MAXHLIM_NODE]= "MAXHLIM_NODE",
 };
 
 const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
