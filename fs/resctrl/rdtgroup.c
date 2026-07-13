@@ -129,7 +129,8 @@ void rdt_staged_configs_clear(void)
 static bool resctrl_is_mbm_enabled(void)
 {
 	return (resctrl_is_mon_event_enabled(QOS_L3_MBM_TOTAL_EVENT_ID) ||
-		resctrl_is_mon_event_enabled(QOS_L3_MBM_LOCAL_EVENT_ID));
+		resctrl_is_mon_event_enabled(QOS_L3_MBM_LOCAL_EVENT_ID) ||
+		resctrl_is_mon_event_enabled(QOS_NODE_MBM_TOTAL_EVENT_ID));
 }
 
 /*
@@ -1757,7 +1758,7 @@ static int mbm_total_bytes_config_show(struct kernfs_open_file *of,
 {
 	struct rdt_resource *r = rdt_kn_parent_priv(of->kn);
 
-	mbm_config_show(seq, r, QOS_L3_MBM_TOTAL_EVENT_ID);
+	mbm_config_show(seq, r, resctrl_mbm_total_event_id());
 
 	return 0;
 }
@@ -1876,7 +1877,7 @@ static ssize_t mbm_total_bytes_config_write(struct kernfs_open_file *of,
 
 	buf[nbytes - 1] = '\0';
 
-	ret = mon_config_write(r, buf, QOS_L3_MBM_TOTAL_EVENT_ID);
+	ret = mon_config_write(r, buf, resctrl_mbm_total_event_id());
 
 out_unlock:
 	mutex_unlock(&rdtgroup_mutex);
