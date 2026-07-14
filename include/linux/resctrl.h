@@ -257,6 +257,12 @@ enum resctrl_ctrl_unit {
 	RESCTRL_CTRL_UNIT_GBPS,
 };
 
+enum resctrl_ctrl_mode {
+	RESCTRL_CTRL_NO_EMULATE = 0,
+	RESCTRL_CTRL_LEGACY,
+	RESCTRL_CTRL_NATIVE,
+};
+
 /**
  * struct resctrl_membw - Memory bandwidth allocation related data
  * @min_bw:		Minimum memory bandwidth percentage user can request
@@ -279,6 +285,8 @@ enum resctrl_ctrl_unit {
  *			"all" for a proportional schema. Base unit of an
  *			absolute control, for example "GBps".
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
+ * @mode:		"native": enable emulate controls;
+ * 			"legacy": legacy MB control and its emulate controls
  * @mb_max_lim:		MPAM MAX_LIM encoding (MPAMF_MBW_IDR); invalid elsewhere
  * @arch_has_mb_max_lim:True if mb_max_lim is supported
  *
@@ -422,6 +430,7 @@ struct rdt_resource {
 	bool				bw_delay_linear;
 	enum membw_throttle_mode	bw_throttle_mode;
 	bool				cache_io_alloc_capable;
+	enum resctrl_ctrl_mode		mode;
 	struct list_head		controls;
 };
 
