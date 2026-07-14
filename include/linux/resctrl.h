@@ -287,6 +287,7 @@ enum resctrl_ctrl_mode {
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
  * @mode:		"native": enable emulate controls;
  * 			"legacy": legacy MB control and its emulate controls
+ * @status:		The control is enabled or disabled.
  * @mb_max_lim:		MPAM MAX_LIM encoding (MPAMF_MBW_IDR); invalid elsewhere
  * @arch_has_mb_max_lim:True if mb_max_lim is supported
  *
@@ -303,6 +304,7 @@ struct resctrl_membw {
 	u32				scale;
 	enum resctrl_ctrl_unit		unit;
 	bool				mba_sc;
+	bool				status;
 	u8				mb_max_lim;
 	bool				arch_has_mb_max_lim;
 };

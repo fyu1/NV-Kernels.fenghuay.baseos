@@ -1284,6 +1284,7 @@ static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 		mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
 		r->mode = RESCTRL_CTRL_LEGACY;
 	}
+	mpam_ctrl->r_ctrl.membw.status = true;
 }
 
 static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
