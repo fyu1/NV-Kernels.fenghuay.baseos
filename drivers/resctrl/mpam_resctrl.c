@@ -1252,14 +1252,23 @@ void resctrl_arch_config_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *
 	resctrl_arch_reset_cntr(r, d, closid, rmid, cntr_id, evtid);
 }
 
+/* Fixme: Is this a right helper? How to get MB and MB_NODE together */
+static bool mpam_resctrl_ctrl_node(struct rdt_resource *r)
+{
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	class = res->class;
+
+	return mpam_class_memory(class);
+}
+
 static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 					struct mpam_resctrl_ctrl *mpam_ctrl,
 					struct mpam_props *cprops,
 					enum resctrl_ctrl_name name)
 {
-	struct mpam_resctrl_res *res;
-	struct mpam_class *class;
-
 	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 	mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
 	mpam_ctrl->r_ctrl.name = name;
@@ -1275,9 +1284,7 @@ static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 		mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
 	}
 
-	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
-	class = res->class;
-	if (mpam_class_memory(class)) {
+	if (mpam_resctrl_ctrl_node(r)) {
 		mpam_ctrl->r_ctrl.scope = RESCTRL_NODE;
 		r->mode = RESCTRL_CTRL_NATIVE;
 	} else {
@@ -1289,12 +1296,7 @@ static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 
 static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
 {
-	struct mpam_resctrl_res *res;
-	struct mpam_class *class;
-
-	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
-	class = res->class;
-	if (mpam_class_memory(class))
+	if (mpam_resctrl_ctrl_node(r))
 		return RESCTRL_CTRL_NAME_MAXHLIM_NODE;
 
 	return RESCTRL_CTRL_NAME_MAXHLIM;
@@ -1303,7 +1305,7 @@ static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
 static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 				      struct mpam_props *cprops)
 {
-	struct mpam_resctrl_ctrl *ctrl_def, *ctrl_maxhlim = NULL;
+	struct mpam_resctrl_ctrl *ctrl_def;
 
 	ctrl_def = kzalloc_obj(*ctrl_def);
 	if (!ctrl_def)
@@ -1313,6 +1315,8 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
 
 	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
+		struct mpam_resctrl_ctrl *ctrl_maxhlim;
+
 		ctrl_maxhlim = kzalloc_obj(*ctrl_maxhlim);
 		if (ctrl_maxhlim) {
 			enum resctrl_ctrl_name name;
@@ -1321,6 +1325,19 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 			_mpam_resctrl_ctrl_init_mba(r, ctrl_maxhlim, cprops,
 						    name);
 			list_add(&ctrl_maxhlim->r_ctrl.entry, &r->controls);
+		}
+	}
+
+	if (mpam_resctrl_ctrl_node(r)) {
+		struct mpam_resctrl_ctrl *ctrl_node;
+
+		ctrl_node = kzalloc_obj(*ctrl_node);
+		if (ctrl_node) {
+			_mpam_resctrl_ctrl_init_mba(r, ctrl_node, cprops,
+						    RESCTRL_CTRL_NAME_NODE);
+			ctrl_node->r_ctrl.emulated = ctrl_def;
+			ctrl_def->r_ctrl.membw.status = false;
+			list_add(&ctrl_node->r_ctrl.entry, &r->controls);
 		}
 	}
 
