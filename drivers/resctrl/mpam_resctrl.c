@@ -1252,14 +1252,34 @@ void resctrl_arch_config_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *
 	resctrl_arch_reset_cntr(r, d, closid, rmid, cntr_id, evtid);
 }
 
+/* Fixme: Is this a right helper? How to get MB and MB_NODE together */
+static bool mpam_resctrl_ctrl_node(struct rdt_resource *r)
+{
+	struct mpam_resctrl_res *res;
+	struct mpam_class *class;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	class = res->class;
+
+	return mpam_class_memory(class);
+}
+
+static bool mpam_resctrl_cache_has_mba(void)
+{
+	struct mpam_resctrl_res *l3_res = &mpam_resctrl_controls[RDT_RESOURCE_L3];
+	struct mpam_class *class = l3_res->class;
+
+	if (!class)
+		return false;
+
+	return class_has_usable_mba(&class->props);
+}
+
 static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 					struct mpam_resctrl_ctrl *mpam_ctrl,
 					struct mpam_props *cprops,
 					enum resctrl_ctrl_name name)
 {
-	struct mpam_resctrl_res *res;
-	struct mpam_class *class;
-
 	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 	mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
 	mpam_ctrl->r_ctrl.name = name;
@@ -1275,26 +1295,58 @@ static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 		mpam_ctrl->r_ctrl.membw.arch_has_mb_max_lim = true;
 	}
 
-	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
-	class = res->class;
-	if (mpam_class_memory(class)) {
-		mpam_ctrl->r_ctrl.scope = RESCTRL_NODE;
-		r->mode = RESCTRL_CTRL_NATIVE;
+	if (mpam_resctrl_ctrl_node(r)) {
+		/*
+		 * Default to legacy mode so a disabled MB control is emulated
+		 * by the node-scoped control, keeping the "MB:" schemata line
+		 * for backward compatibility. User space can switch to native
+		 * mode to disable emulation.
+		 */
+		r->mode = RESCTRL_CTRL_LEGACY;
+		/*
+		 * On a memory-class resource the legacy MB control is backed by
+		 * the L3 cache MBW hardware when the cache has usable MBA, so it
+		 * keeps cache scope. Otherwise it is node-scoped and emulated by
+		 * the MB_NODE control.
+		 */
+		if (name == RESCTRL_CTRL_NAME_DEF && mpam_resctrl_cache_has_mba())
+			mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
+		else
+			mpam_ctrl->r_ctrl.scope = RESCTRL_NODE;
 	} else {
 		mpam_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
 		r->mode = RESCTRL_CTRL_LEGACY;
 	}
-	mpam_ctrl->r_ctrl.membw.status = true;
+}
+
+static void mpam_resctrl_ctrl_set_mbw_status(struct resctrl_ctrl *ctrl,
+					     struct rdt_resource *r,
+					     struct mpam_props *cprops)
+{
+	if (resctrl_ctrl_maxhlim(ctrl)) {
+		ctrl->membw.status = false;
+		return;
+	}
+
+	switch (ctrl->name) {
+	case RESCTRL_CTRL_NAME_DEF:
+		if (mpam_resctrl_ctrl_node(r))
+			ctrl->membw.status = mpam_resctrl_cache_has_mba();
+		else
+			ctrl->membw.status = class_has_usable_mba(cprops);
+		break;
+	case RESCTRL_CTRL_NAME_NODE:
+		ctrl->membw.status = class_has_usable_mba(cprops);
+		break;
+	default:
+		ctrl->membw.status = false;
+		break;
+	}
 }
 
 static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
 {
-	struct mpam_resctrl_res *res;
-	struct mpam_class *class;
-
-	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
-	class = res->class;
-	if (mpam_class_memory(class))
+	if (mpam_resctrl_ctrl_node(r))
 		return RESCTRL_CTRL_NAME_MAXHLIM_NODE;
 
 	return RESCTRL_CTRL_NAME_MAXHLIM;
@@ -1303,16 +1355,19 @@ static enum resctrl_ctrl_name get_ctrl_name_maxhlim(struct rdt_resource *r)
 static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 				      struct mpam_props *cprops)
 {
-	struct mpam_resctrl_ctrl *ctrl_def, *ctrl_maxhlim = NULL;
+	struct mpam_resctrl_ctrl *ctrl_def;
 
 	ctrl_def = kzalloc_obj(*ctrl_def);
 	if (!ctrl_def)
 		return -ENOMEM;
 
 	_mpam_resctrl_ctrl_init_mba(r, ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
+	mpam_resctrl_ctrl_set_mbw_status(&ctrl_def->r_ctrl, r, cprops);
 	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
 
 	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
+		struct mpam_resctrl_ctrl *ctrl_maxhlim;
+
 		ctrl_maxhlim = kzalloc_obj(*ctrl_maxhlim);
 		if (ctrl_maxhlim) {
 			enum resctrl_ctrl_name name;
@@ -1320,7 +1375,27 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 			name = get_ctrl_name_maxhlim(r);
 			_mpam_resctrl_ctrl_init_mba(r, ctrl_maxhlim, cprops,
 						    name);
+			mpam_resctrl_ctrl_set_mbw_status(&ctrl_maxhlim->r_ctrl, r,
+							 cprops);
 			list_add(&ctrl_maxhlim->r_ctrl.entry, &r->controls);
+		}
+	}
+
+	if (mpam_resctrl_ctrl_node(r)) {
+		struct mpam_resctrl_ctrl *ctrl_node;
+
+		ctrl_node = kzalloc_obj(*ctrl_node);
+		if (ctrl_node) {
+			_mpam_resctrl_ctrl_init_mba(r, ctrl_node, cprops,
+						    RESCTRL_CTRL_NAME_NODE);
+			mpam_resctrl_ctrl_set_mbw_status(&ctrl_node->r_ctrl, r,
+							 cprops);
+			if (!ctrl_def->r_ctrl.membw.status) {
+				ctrl_def->r_ctrl.emulated_by =
+					&ctrl_node->r_ctrl;
+			}
+
+			list_add(&ctrl_node->r_ctrl.entry, &r->controls);
 		}
 	}
 
@@ -1571,6 +1646,7 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	case RDT_RESOURCE_MBA:
 		switch (ctrl->name) {
 		case RESCTRL_CTRL_NAME_DEF:
+		case RESCTRL_CTRL_NAME_NODE:
 			if (mpam_has_feature(mpam_feat_mbw_max, cprops))
 				configured_by = mpam_feat_mbw_max;
 			break;
@@ -1652,6 +1728,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	case RDT_RESOURCE_MBA:
 		switch (ctrl->name) {
 		case RESCTRL_CTRL_NAME_DEF:
+		case RESCTRL_CTRL_NAME_NODE:
 			if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
 				cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
 				mpam_set_feature(mpam_feat_mbw_max, &cfg);
