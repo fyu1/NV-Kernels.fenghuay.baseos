@@ -1139,6 +1139,83 @@ mode every control is a sibling directly under ``resource_schemata/``):
 	    ├── scope                     # NODE
 	    └── status                    # enabled
 
+Memory bandwidth maximum hard limit (ARM MPAM)
+----------------------------------------------
+On ARM MPAM systems a memory-bandwidth control that uses maximum
+bandwidth (``MPAMCFG_MBW_MAX``) may also expose a per-domain hard-limit
+toggle as a *control configuration*. A control configuration is an
+optional sub-setting of a control: it has its own ``schemata`` line and
+its own directory under the owning control's ``configs/`` directory in
+``info/``, but it shares the control's domains.
+
+Two such configurations exist for the MBA controls:
+
+``MB_MAXHLIM``
+	Hard-limit toggle for the default ``MB`` control.
+
+``MB_MAXHLIM_NODE``
+	Hard-limit toggle for the node-scoped ``MB_NODE`` control.
+
+Visibility
+~~~~~~~~~~
+A configuration is present only when the platform supports the MPAM
+``mpam_feat_mbw_max_hardlim_rw`` feature for the owning control, which
+the architecture reports only when ``MPAMF_MBW_IDR.MAX_LIM`` reads
+``0``. When supported, the configuration's directory is created under
+the owning control's ``configs/`` directory and its ``schemata`` line is
+shown; otherwise it is absent from both ``info/`` and ``schemata``.
+
+info directory layout
+~~~~~~~~~~~~~~~~~~~~~~
+Each control under ``info/MB/resource_schemata/`` has a ``configs/``
+directory holding one subdirectory per supported configuration. Each
+configuration directory currently contains a single read-only ``type``
+file, which reads ``bool`` for these hard-limit toggles::
+
+	info/MB/resource_schemata/
+	└── MB/
+	    ├── scope                     # L3
+	    ├── status                    # enabled
+	    ├── ...                       # type, min, max, ...
+	    └── configs/
+	        └── MB_MAXHLIM/
+	            └── type              # bool
+
+When the node-scoped control is present, its ``MB_MAXHLIM_NODE``
+configuration appears the same way under that control (nested under
+``MB/`` in legacy mode, or as a sibling in native mode)::
+
+	info/MB/resource_schemata/
+	└── MB/
+	    ├── ...
+	    └── MB_NODE/
+	        ├── scope                 # NODE
+	        ├── status                # enabled
+	        └── configs/
+	            └── MB_MAXHLIM_NODE/
+	                └── type          # bool
+
+schemata line
+~~~~~~~~~~~~~
+When visible, each configuration adds its own line to ``schemata``,
+immediately after the owning control's line. The line name is the
+control name suffixed with the configuration name, and each domain takes
+a boolean value (``0`` or ``1``) using the same domain identifiers as
+the owning control::
+
+	MB_MAXHLIM:<id0>=0|1;<id1>=0|1;...
+	MB_MAXHLIM_NODE:<id0>=0|1;<id1>=0|1;...
+
+A value of ``1`` sets the ``HARDLIM`` bit of ``MPAMCFG_MBW_MAX`` for that
+domain (the maximum bandwidth is enforced as a hard limit); ``0`` clears
+it (soft-limit behaviour). New resource groups start with ``0`` on every
+domain.
+
+For example, to enable the hard limit on domain 0 of the default
+control::
+
+	# echo "MB_MAXHLIM:0=1" > /sys/fs/resctrl/<group>/schemata
+
 Memory bandwidth Allocation specified in MiBps
 ----------------------------------------------
 
