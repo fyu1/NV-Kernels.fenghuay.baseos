@@ -1152,6 +1152,10 @@ mode every control is a sibling directly under ``resource_schemata/``):
 	    ├── scope                     # NODE
 	    └── status                    # enabled
 
+When ``mpam_feat_mbw_max_hardlim_rw`` is supported, an additional
+``MB_MAXHLIM_NODE`` control may appear as a sibling directly under
+``resource_schemata/`` in all cases above.
+
 Memory bandwidth Allocation specified in MiBps
 ----------------------------------------------
 
