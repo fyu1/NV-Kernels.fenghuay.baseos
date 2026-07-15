@@ -353,6 +353,57 @@ schemata file::
 		MB_MIN:0=1;1=1
 		MB_MAX:0=1000;1=1000
 
+ARM MPAM example
+~~~~~~~~~~~~~~~~
+On ARM MPAM systems where the MBA resource is backed by a memory-level
+MSC and the L3 cache MSC has no usable MBA hardware, the kernel exposes
+two bandwidth controls. ``MB_NODE`` backs ``MB`` so legacy mode keeps a
+working ``MB:`` schemata line.
+
+``MB`` (default):
+	The legacy control. It has no bandwidth hardware of its own, so
+	in ``legacy`` ``control_mode`` writes to the ``MB:`` line are
+	applied through ``MB_NODE``. Domain identifiers are NUMA node
+	ids.
+
+``MB_NODE``:
+	The native, node-scoped control backed by memory-level MBW
+	hardware. The ``MB_NODE:`` schemata line uses the same NUMA node
+	identifiers. The control directory is nested under ``MB`` in
+	``info/MB/schemata/``.
+
+``MB_NODE`` is created only in that configuration. If the L3 cache MSC
+already has usable MBA hardware, ``MB`` is backed by that cache-level
+hardware and ``MB_NODE`` is not created.
+
+``control_mode`` lives in ``info/MB/``. Switching mode changes which
+lines appear in each group's ``schemata`` file; it does not rebuild the
+``info/MB/schemata/`` tree.
+
+**Memory-level MBA, no L3 MBA** (``MB`` emulated by ``MB_NODE``)::
+
+	info/MB/
+	├── control_mode
+	└── schemata/
+	    └── MB/
+	        └── MB_NODE/
+
+In ``legacy`` mode (the default) the group's schemata file shows the
+emulated ``MB:`` line::
+
+	# cat /sys/fs/resctrl/info/MB/control_mode
+	[legacy] native
+	# cat schemata
+	MB:0=100;1=100
+
+In ``native`` mode the ``MB:`` line is replaced by ``MB_NODE:``::
+
+	# echo native > /sys/fs/resctrl/info/MB/control_mode
+	# cat /sys/fs/resctrl/info/MB/control_mode
+	legacy [native]
+	# cat schemata
+	MB_NODE:0=100;1=100
+
 Resource control properties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Every control directory contains a file named "type" that specifies which
