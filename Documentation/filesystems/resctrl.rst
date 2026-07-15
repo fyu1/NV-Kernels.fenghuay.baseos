@@ -1081,6 +1081,43 @@ When ``MB`` is enabled, ``MB_NODE`` is a sibling of ``MB`` in
 ``info/MB/resource_schemata/``, and the two controls operate
 independently.
 
+Emulation mode
+~~~~~~~~~~~~~~
+Whether a disabled control is emulated is selected by the writable
+``mode`` file in ``info/MB/resource_schemata/``. Reading it shows the
+available modes with the active one in brackets, for example::
+
+	# cat /sys/fs/resctrl/info/MB/resource_schemata/mode
+	[legacy] native
+
+``legacy`` (default):
+	A disabled ``MB`` control is emulated by ``MB_NODE`` (or another
+	suitable native control). ``MB_NODE`` is nested under ``MB`` in
+	``info/MB/resource_schemata/`` and schemata reads and writes for
+	the ``MB:`` line are mirrored through ``MB_NODE``. This keeps the
+	``MB:`` entry working for existing tools.
+
+``native``:
+	No emulation is performed. A disabled ``MB`` control has no ``MB:``
+	schemata line, ``MB_NODE`` is a sibling of ``MB`` directly under
+	``info/MB/resource_schemata/``, and each visible schemata line only
+	reflects its own hardware.
+
+The mode is changed by writing to the file::
+
+	# echo native > /sys/fs/resctrl/info/MB/resource_schemata/mode
+
+Switching mode rebuilds the ``info/MB/resource_schemata/`` control
+subdirectories so their nesting matches the new mode. The layouts below
+show the ``legacy`` mode nesting; in ``native`` mode every control is a
+sibling directly under ``resource_schemata/``.
+
+While a mode write is being processed the control subdirectories are torn
+down and recreated, so a concurrent reader may briefly observe
+``resource_schemata/`` containing only the ``mode`` file. This is expected:
+the control subdirectories are informational only and the actual bandwidth
+configuration in each group's ``schemata`` file is unaffected.
+
 ``MB_NODE`` is only created on a memory-class MBA resource, and such a
 resource is only registered when it has usable MBA hardware, so whenever
 ``MB_NODE`` is present its ``status`` reads ``enabled``. (If ``MB_NODE``
