@@ -291,6 +291,26 @@ with respect to allocation:
 			# cat /sys/fs/resctrl/info/MB/domain_id
 			numa
 
+"resource_schemata":
+		Directory describing the MBA controls exposed for this resource.
+		Each control has its own subdirectory. Control names are formed
+		from the resource name and an optional suffix (for example
+		``MB`` for the default control and ``MB_NODE`` for the
+		node-scoped control).
+
+		On ARM MPAM MBA resources this directory also contains a writable
+		``mode`` file that selects the active control mode (``legacy`` or
+		``native``). See "MBA control emulation (ARM MPAM)" below.
+		Switching modes only changes observable behaviour when ``MB`` is
+		disabled and emulated by ``MB_NODE``; on systems without that
+		relationship the file is still present but has no effect on
+		``schemata`` or the control directory layout.
+
+		Each control subdirectory is read-only and contains files such
+		as ``scope``, ``type``, and ``status``. The ``status`` file
+		reads ``enabled`` when the control is backed by MBW
+		(``mbw_max``) hardware and ``disabled`` otherwise.
+
 If L3 monitoring is available there will be an "L3_MON" directory
 with the following files:
 
@@ -1021,6 +1041,77 @@ Example on a system where MB domains are NUMA nodes::
 
 The "domain_id" file should be read before interpreting "MB:" entries in
 "schemata" or directory names under "mon_data".
+
+MBA control emulation (ARM MPAM)
+--------------------------------
+Some platforms expose memory bandwidth allocation through a native control
+(for example a node-scoped ``MB_NODE`` control) rather than the legacy
+``MB`` control that existing tools expect. To preserve backward
+compatibility, legacy mode (the default) keeps the ``MB:`` entry in
+``schemata`` when the default ``MB`` control has no hardware of its own.
+A native control such as ``MB_NODE`` emulates ``MB`` behind the scenes
+so user tools that read or write only the ``MB:`` line continue to work.
+In native mode the disabled ``MB`` control has no ``schemata`` line;
+tools use ``MB_NODE:`` instead.
+
+On ARM MPAM systems where the MBA resource is backed by a memory-level
+MSC, the kernel exposes two bandwidth controls:
+
+``MB`` (default):
+	The legacy control. When the L3 cache MSC has usable MBA hardware,
+	this control is backed by cache-level MBW (``mbw_max``) hardware,
+	its ``status`` reads ``enabled``, and its ``scope`` reads ``L3``.
+	The ``MB:`` schemata line uses L3 cache identifiers.
+
+``MB_NODE``:
+	The native, node-scoped control. When the memory MSC has usable MBA
+	hardware, this control is backed by node-level MBW hardware, its
+	``status`` reads ``enabled``, and its ``scope`` reads ``Node``.
+	The ``MB_NODE:`` schemata line uses NUMA node identifiers.
+
+When the default ``MB`` control has no MBW hardware of its own
+(``status`` reads ``disabled``), it is emulated by ``MB_NODE`` (or
+another suitable native control) in legacy mode. In that case:
+
+- ``MB_NODE`` is nested under ``MB`` in ``info/MB/resource_schemata/``.
+- Schemata reads and writes for the ``MB:`` line are mirrored through
+  ``MB_NODE`` so both lines show and update the same values.
+
+When ``MB`` is enabled, ``MB_NODE`` is a sibling of ``MB`` in
+``info/MB/resource_schemata/``, and the two controls operate
+independently.
+
+``MB_NODE`` is only created on a memory-class MBA resource, and such a
+resource is only registered when it has usable MBA hardware, so whenever
+``MB_NODE`` is present its ``status`` reads ``enabled``. (If ``MB_NODE``
+is not supported it is simply absent from ``info/MB/resource_schemata/``.)
+The layout therefore depends only on the ``MB`` control's ``status``:
+
+**MB disabled, MB_NODE enabled** (``MB`` emulated by ``MB_NODE``)::
+
+	info/MB/resource_schemata/
+	├── mode
+	└── MB/
+	    ├── scope                     # Node
+	    ├── status                    # disabled
+	    └── MB_NODE/
+	        ├── scope                 # Node
+	        └── status                # enabled
+
+**MB enabled, MB_NODE enabled**::
+
+	info/MB/resource_schemata/
+	├── mode
+	├── MB/
+	│   ├── scope                     # L3
+	│   └── status                    # enabled
+	└── MB_NODE/
+	    ├── scope                     # Node
+	    └── status                    # enabled
+
+When ``mpam_feat_mbw_max_hardlim_rw`` is supported, an additional
+``MB_MAXHLIM_NODE`` control may appear as a sibling directly under
+``resource_schemata/`` in all cases above.
 
 Memory bandwidth Allocation specified in MiBps
 ----------------------------------------------
