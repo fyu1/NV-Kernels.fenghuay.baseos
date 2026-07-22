@@ -429,6 +429,7 @@ static const char * const resctrl_ctrl_name[] = {
 
 static const char * const resctrl_ctrl_config_name[] = {
 	[RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM] = "MAXHLIM",
+	[RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM_NODE] = "MAXHLIM_NODE",
 };
 
 const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
@@ -456,12 +457,7 @@ resctrl_ctrl_config_format_name(struct resctrl_ctrl *ctrl,
 				struct resctrl_ctrl_config *config,
 				char *buf, size_t size)
 {
-	if (resctrl_ctrl_is_default(ctrl))
-		snprintf(buf, size, "%s",
-			 resctrl_ctrl_config_name_str(config->name));
-	else
-		snprintf(buf, size, "%s_%s", resctrl_ctrl_name_str(ctrl->name),
-			 resctrl_ctrl_config_name_str(config->name));
+	snprintf(buf, size, "%s", resctrl_ctrl_config_name_str(config->name));
 }
 
 struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
@@ -756,13 +752,8 @@ static void show_config_doms(struct seq_file *s, struct rdt_resource_final *f,
 		if (print_ctrl) {
 			char label[32];
 
-			if (resctrl_ctrl_is_default(ctrl))
-				snprintf(label, sizeof(label), "%s_%s", f->name,
-					 resctrl_ctrl_config_name_str(config->name));
-			else
-				snprintf(label, sizeof(label), "%s_%s_%s", f->name,
-					 resctrl_ctrl_name_str(ctrl->name),
-					 resctrl_ctrl_config_name_str(config->name));
+			snprintf(label, sizeof(label), "%s_%s", f->name,
+				 resctrl_ctrl_config_name_str(config->name));
 			seq_printf(s, "%*s:", max_name_width, label);
 		}
 

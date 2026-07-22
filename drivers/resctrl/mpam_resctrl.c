@@ -1364,6 +1364,13 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 						    RESCTRL_CTRL_NAME_NODE);
 			mpam_resctrl_ctrl_set_mbw_status(&ctrl_node->r_ctrl, r,
 							 cprops);
+			if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw,
+					     cprops)) {
+				ctrl_node->mb_maxhlim_config.name =
+					RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM_NODE;
+				list_add_tail(&ctrl_node->mb_maxhlim_config.entry,
+					      &ctrl_node->r_ctrl.configs);
+			}
 			if (ctrl_def->r_ctrl.membw.no_mbw_hw)
 				ctrl_def->r_ctrl.emulated_by = &ctrl_node->r_ctrl;
 

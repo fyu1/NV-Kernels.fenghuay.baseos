@@ -2242,6 +2242,7 @@ static int resctrl_ctrl_config_type_show(struct kernfs_open_file *of,
 
 	switch (ctrl_config->name) {
 	case RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM:
+	case RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM_NODE:
 		seq_puts(seq, "bool\n");
 		return 0;
 	default:
@@ -2273,6 +2274,11 @@ resctrl_ctrl_config_full_name(struct resctrl_ctrl_config *ctrl_config,
 	switch (ctrl_config->name) {
 	case RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM:
 		ret = snprintf(ctrl_config_full_name, size, "MB_MAXHLIM");
+		if (ret >= size)
+			return -ENOSPC;
+		break;
+	case RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM_NODE:
+		ret = snprintf(ctrl_config_full_name, size, "MB_MAXHLIM_NODE");
 		if (ret >= size)
 			return -ENOSPC;
 		break;
