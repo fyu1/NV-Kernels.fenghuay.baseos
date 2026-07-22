@@ -2227,6 +2227,113 @@ static struct rftype res_common_files[] = {
 	},
 };
 
+static int resctrl_ctrl_config_type_show(struct kernfs_open_file *of,
+					 struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl_config *ctrl_config = rdt_kn_parent_priv(of->kn);
+
+	switch (ctrl_config->name) {
+	default:
+		/* resctrl does not yet support any control config */
+		seq_puts(seq, "Unsupported control config\n");
+		return 0;
+	}
+
+	return 0;
+}
+
+static struct rftype ctrl_config_files[] = {
+	{
+		.name		= "type",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_config_type_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+};
+
+static int
+resctrl_ctrl_config_full_name(struct resctrl_ctrl_config *ctrl_config,
+			      char *ctrl_config_full_name,
+			      int size)
+{
+	switch (ctrl_config->name) {
+	default:
+		pr_err("invalid resctrl control config name\n");
+		rdt_last_cmd_puts("invalid resctrl control config name\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
+resctrl_ctrl_config_create_subdir(struct kernfs_node *kn_dir,
+				  struct resctrl_ctrl_config *ctrl_config,
+				  struct kernfs_node **kn_ctrl_config)
+{
+	char ctrl_config_full_name[20];
+	size_t size;
+	int ret;
+
+	size = sizeof(ctrl_config_full_name);
+	ret = resctrl_ctrl_config_full_name(ctrl_config, ctrl_config_full_name,
+					    size);
+	if (ret)
+		return ret;
+
+	*kn_ctrl_config = kernfs_create_dir(kn_dir, ctrl_config_full_name,
+					    kn_dir->mode, ctrl_config);
+	if (IS_ERR(*kn_ctrl_config))
+		return PTR_ERR(*kn_ctrl_config);
+
+	return rdtgroup_kn_set_ugid(*kn_ctrl_config);
+}
+
+static int resctrl_ctrl_config_add_files(struct kernfs_node *kn,
+					 struct resctrl_ctrl *ctrl)
+{
+	struct rftype *rfts_config, *rft_config;
+	struct resctrl_ctrl_config *ctrl_config;
+	struct kernfs_node *kn_configs;
+	struct kernfs_node *kn_ctrl_config;
+	int ret, len_config;
+
+	kn_configs = kernfs_create_dir(kn, "configs", kn->mode, ctrl);
+	if (IS_ERR(kn_configs))
+		return PTR_ERR(kn_configs);
+
+	ret = rdtgroup_kn_set_ugid(kn_configs);
+	if (ret)
+		return ret;
+
+	/* Add config directories and files under this control's configs dir. */
+	rfts_config = ctrl_config_files;
+	len_config = ARRAY_SIZE(ctrl_config_files);
+
+	for_each_resource_ctrl_config(ctrl_config, ctrl) {
+		ret = resctrl_ctrl_config_create_subdir(kn_configs, ctrl_config,
+							&kn_ctrl_config);
+		if (ret)
+			goto error;
+
+		for (rft_config = rfts_config;
+		     rft_config < rfts_config + len_config; rft_config++) {
+			if (!(BIT(ctrl->type) & rft_config->fflags))
+				continue;
+
+			ret = rdtgroup_add_file(kn_ctrl_config, rft_config);
+			if (ret)
+				goto error;
+		}
+	}
+
+	return 0;
+
+error:
+	return ret;
+}
+
 static int resctrl_ctrl_scope_show(struct kernfs_open_file *of,
 				   struct seq_file *seq, void *v)
 {
@@ -2414,7 +2521,8 @@ static struct rftype ctrl_files[] = {
 	},
 };
 
-static int resctrl_add_ctrl_files(struct kernfs_node *kn, struct resctrl_ctrl *ctrl)
+static int resctrl_add_ctrl_files(struct kernfs_node *kn,
+				  struct resctrl_ctrl *ctrl)
 {
 	struct rftype *rfts, *rft;
 	int ret, len;
@@ -2430,6 +2538,13 @@ static int resctrl_add_ctrl_files(struct kernfs_node *kn, struct resctrl_ctrl *c
 			if (ret)
 				goto error;
 		}
+	}
+
+	/* Add the control's configuration directories and files. */
+	ret = resctrl_ctrl_config_add_files(kn, ctrl);
+	if (ret) {
+		pr_warn("Failed to add control config, err=%d\n", ret);
+		return ret;
 	}
 
 	return 0;

@@ -51,6 +51,9 @@ int proc_resctrl_show(struct seq_file *m,
 #define for_each_resource_ctrl(ctrl, r)					\
 	list_for_each_entry(ctrl, &r->controls, entry)
 
+#define for_each_resource_ctrl_config(ctrl_config, ctrl)		\
+	list_for_each_entry(ctrl_config, &(ctrl)->configs, entry)
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
@@ -380,6 +383,26 @@ enum resctrl_ctrl_name {
 };
 
 /**
+ * enum resctrl_ctrl_config_name - Control's config name.
+ * @RESCTRL_CTRL_CONFIG_NAME_LAST:	Highest valid config name. Bootstrap
+ *					value used until the first control config
+ *					is introduced.
+ */
+enum resctrl_ctrl_config_name {
+	RESCTRL_CTRL_CONFIG_NAME_LAST = 0,
+};
+
+/**
+ * struct resctrl_ctrl_config - resctrl control configurations
+ * @entry:	List entry of resctrl_ctrl::configs
+ * @name:	Name of this config
+ */
+struct resctrl_ctrl_config {
+	struct list_head		entry;
+	enum resctrl_ctrl_config_name	name;
+};
+
+/**
  * struct resctrl_ctrl - A resource control
  * @entry:	List entry of rdt_resource::controls
  * @scope:	Scope of the resource that this control allocates
@@ -394,6 +417,7 @@ enum resctrl_ctrl_name {
  *		schema entry will be "MB_MAX".
  * @emulated_by: For an emulated control, points at the control that emulates
  *		it; NULL if this control is not emulated.
+ * @configs:	Configurations for this control.
  * @cache:	Cache allocation control properties.
  * @membw:	Bandwidth control properties.
  */
@@ -404,6 +428,7 @@ struct resctrl_ctrl {
 	enum resctrl_ctrl_type	type;
 	enum resctrl_ctrl_name	name;
 	struct resctrl_ctrl	*emulated_by;
+	struct list_head	configs;
 	union {
 		struct resctrl_cache	cache;
 		struct resctrl_membw	membw;

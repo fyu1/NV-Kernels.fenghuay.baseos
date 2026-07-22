@@ -169,6 +169,7 @@ static inline void cache_alloc_hsw_probe(void)
 	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.configs);
 	hw_ctrl->r_ctrl.cache.cbm_len = 20;
 	hw_ctrl->r_ctrl.cache.shareable_bits = 0xc0000;
 	hw_ctrl->r_ctrl.cache.min_cbm_bits = 2;
@@ -191,6 +192,7 @@ static __init bool __temporary_multiple_mba_intel_controls(struct rdt_resource *
 	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.configs);
 
 	hw_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
 	hw_ctrl->r_ctrl.membw.min_bw = MAX_MBA_BW - max_delay;
@@ -313,6 +315,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.configs);
 
 	hw_ctrl->r_ctrl.membw.max_bw = BIT(eax);
 
@@ -364,6 +367,7 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.configs);
 
 	hw_ctrl->r_ctrl.cache.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;

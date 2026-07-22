@@ -1284,6 +1284,7 @@ static void _mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 	mpam_ctrl->r_ctrl.name = name;
 	INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+	INIT_LIST_HEAD(&mpam_ctrl->r_ctrl.configs);
 
 	mpam_ctrl->r_ctrl.membw.min_bw = get_mba_min(cprops);
 	mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
@@ -1383,6 +1384,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+		INIT_LIST_HEAD(&mpam_ctrl->r_ctrl.configs);
 
 		mpam_ctrl->r_ctrl.cache.arch_has_sparse_bitmasks = true;
 
