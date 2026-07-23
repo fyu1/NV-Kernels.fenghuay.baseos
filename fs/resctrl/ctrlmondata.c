@@ -35,6 +35,7 @@ struct rdt_parse_data {
 	 * the control that backs it.
 	 */
 	struct resctrl_ctrl	*line_ctrl;
+	struct resctrl_ctrl_config *line_config;
 };
 
 typedef int (ctrlval_parser_t)(struct rdt_parse_data *data,
@@ -112,7 +113,11 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 	u32 bw_val;
 
 	cfg = &d->staged_config[f->conf_type];
-	if (cfg->have_new_ctrl && cfg->staged_ctrl == data->line_ctrl) {
+	if (data->line_config)
+		cfg = &d->staged_configs[f->conf_type];
+
+	if (cfg->have_new_ctrl && cfg->staged_ctrl == data->line_ctrl &&
+	    cfg->staged_config == data->line_config) {
 		rdt_last_cmd_printf("Duplicate domain %d\n", d->hdr.id);
 		return -EINVAL;
 	}
@@ -137,6 +142,7 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 	cfg->new_ctrl = bw_val;
 	cfg->have_new_ctrl = true;
 	cfg->staged_ctrl = data->line_ctrl;
+	cfg->staged_config = NULL;
 
 	return 0;
 }
@@ -295,7 +301,9 @@ static bool resctrl_ctrl_schemata_hidden(struct rdt_resource *r,
 }
 
 static int parse_line(char *line, struct rdt_resource_final *f,
-		      struct resctrl_ctrl *ctrl, struct rdtgroup *rdtgrp)
+		      struct resctrl_ctrl *ctrl,
+		      struct resctrl_ctrl_config *line_config,
+		      struct rdtgroup *rdtgrp)
 {
 	enum resctrl_conf_type t = f->conf_type;
 	ctrlval_parser_t *parse_ctrlval = NULL;
@@ -310,8 +318,13 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	/* A control without MBW hardware mirrors the control that emulates it. */
-	ctrl = resctrl_ctrl_backing(r, ctrl);
+	/*
+	 * A control without MBW hardware mirrors the control that emulates it.
+	 * Control configs (for example MB_MAXHLIM) always use the control
+	 * they belong to.
+	 */
+	if (!line_config)
+		ctrl = resctrl_ctrl_backing(r, ctrl);
 
 	parse_ctrlval = resctrl_ctrl_priv_all[ctrl->type].parser;
 
@@ -337,6 +350,7 @@ next:
 			data.closid = rdtgrp->closid;
 			data.mode = rdtgrp->mode;
 			data.line_ctrl = line_ctrl;
+			data.line_config = line_config;
 			if (parse_ctrlval(&data, f, d, ctrl))
 				return -EINVAL;
 			if (rdtgrp->mode ==  RDT_MODE_PSEUDO_LOCKSETUP) {
@@ -525,6 +539,7 @@ size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
 			       struct rdtgroup *rdtgrp)
 {
+	struct resctrl_ctrl_config *config = NULL;
 	struct rdt_resource_final *f;
 	struct resctrl_ctrl *ctrl;
 	char *resname;
@@ -534,8 +549,13 @@ static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		if (!strcmp(resname, f->name) && rdtgrp->closid < f->num_closid) {
 			ctrl = resctrl_resource_ctrl_get(f->res, ctrlname);
-			if (ctrl && !resctrl_ctrl_schemata_hidden(f->res, ctrl))
-				return parse_line(tok, f, ctrl, rdtgrp);
+			if (!ctrl && ctrlname)
+				config = resctrl_resource_ctrl_config_get(f->res,
+									  ctrlname,
+									  &ctrl);
+			if (ctrl && (config ||
+				     !resctrl_ctrl_schemata_hidden(f->res, ctrl)))
+				return parse_line(tok, f, ctrl, config, rdtgrp);
 			else
 				break;
 		}
