@@ -1345,6 +1345,14 @@ static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
 
 	_mpam_resctrl_ctrl_init_mba(r, ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
 	mpam_resctrl_ctrl_set_mbw_status(&ctrl_def->r_ctrl, r, cprops);
+
+	if (mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops)) {
+		ctrl_def->mb_maxhlim_config.name =
+			RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM;
+		list_add_tail(&ctrl_def->mb_maxhlim_config.entry,
+			      &ctrl_def->r_ctrl.configs);
+	}
+
 	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
 
 	if (mpam_resctrl_ctrl_node(r)) {
@@ -1643,7 +1651,36 @@ u32 resctrl_arch_get_ctrl_config(struct rdt_resource *r, struct resctrl_ctrl *ct
 				 struct rdt_ctrl_domain *d, u32 closid,
 				 enum resctrl_conf_type type)
 {
-	return 0;
+	u32 partid;
+	struct mpam_config *cfg;
+	struct mpam_props *cprops;
+	struct mpam_resctrl_res *res;
+	struct mpam_resctrl_dom *dom;
+
+	lockdep_assert_cpus_held();
+
+	if (!config || !resctrl_ctrl_config_mb_maxhlim(config))
+		return 0;
+
+	if (!mpam_is_enabled())
+		return 0;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	dom = container_of(d, struct mpam_resctrl_dom, resctrl_ctrl_dom);
+	cprops = &res->class->props;
+
+	if (mpam_resctrl_hide_cdp(r))
+		type = CDP_DATA;
+
+	partid = resctrl_get_config_index(closid, type);
+	cfg = &dom->ctrl_comp->cfg[partid];
+
+	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r) ||
+	    !mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops) ||
+	    !mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cfg))
+		return 0;
+
+	return cfg->mbw_max_hardlim;
 }
 
 int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
@@ -1733,7 +1770,53 @@ int resctrl_arch_update_ctrl_config(struct rdt_resource *r,
 				    struct rdt_ctrl_domain *d, u32 closid,
 				    enum resctrl_conf_type t, u32 cfg_val)
 {
-	return -EINVAL;
+	int err;
+	u32 partid;
+	struct mpam_config cfg;
+	struct mpam_props *cprops;
+	struct mpam_resctrl_res *res;
+	struct mpam_resctrl_dom *dom;
+
+	lockdep_assert_cpus_held();
+	lockdep_assert_irqs_enabled();
+
+	if (!config || !resctrl_ctrl_config_mb_maxhlim(config))
+		return -EINVAL;
+
+	if (!mpam_is_enabled())
+		return -EINVAL;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	dom = container_of(d, struct mpam_resctrl_dom, resctrl_ctrl_dom);
+	cprops = &res->class->props;
+
+	if (mpam_resctrl_hide_cdp(r))
+		t = CDP_DATA;
+
+	partid = resctrl_get_config_index(closid, t);
+	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r))
+		return -EINVAL;
+
+	if (!mpam_has_feature(mpam_feat_mbw_max_hardlim_rw, cprops) ||
+	    !mpam_has_feature(mpam_feat_mbw_max, cprops))
+		return -EINVAL;
+
+	cfg = dom->ctrl_comp->cfg[partid];
+	cfg.mbw_max_hardlim = cfg_val != 0;
+	mpam_set_feature(mpam_feat_mbw_max_hardlim_rw, &cfg);
+	mpam_set_feature(mpam_feat_mbw_max, &cfg);
+
+	if (mpam_resctrl_hide_cdp(r)) {
+		partid = resctrl_get_config_index(closid, CDP_CODE);
+		err = mpam_apply_config(dom->ctrl_comp, partid, &cfg);
+		if (err)
+			return err;
+
+		partid = resctrl_get_config_index(closid, CDP_DATA);
+		return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
+	}
+
+	return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
 }
 
 static int _resctrl_arch_update_domains(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
@@ -1748,14 +1831,24 @@ static int _resctrl_arch_update_domains(struct rdt_resource *r, struct resctrl_c
 	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list) {
 		for (enum resctrl_conf_type t = 0; t < CDP_NUM_TYPES; t++) {
 			struct resctrl_staged_config *cfg = &d->staged_config[t];
+			struct resctrl_staged_config *cfg_config =
+				&d->staged_configs[t];
 
-			if (!cfg->have_new_ctrl)
-				continue;
+			if (cfg->have_new_ctrl) {
+				err = resctrl_arch_update_one(r, ctrl, d, closid,
+							      t, cfg->new_ctrl);
+				if (err)
+					return err;
+			}
 
-			err = resctrl_arch_update_one(r, ctrl, d, closid, t,
-						      cfg->new_ctrl);
-			if (err)
-				return err;
+			if (cfg_config->have_new_ctrl) {
+				err = resctrl_arch_update_ctrl_config(r, ctrl,
+								      cfg_config->staged_config,
+								      d, closid, t,
+								      cfg_config->new_ctrl);
+				if (err)
+					return err;
+			}
 		}
 	}
 

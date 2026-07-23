@@ -403,6 +403,7 @@ struct mpam_msc_ris {
 
 struct mpam_resctrl_ctrl {
 	struct resctrl_ctrl	r_ctrl;
+	struct resctrl_ctrl_config	mb_maxhlim_config;
 };
 
 struct mpam_resctrl_dom {
