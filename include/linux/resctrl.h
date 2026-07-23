@@ -389,12 +389,11 @@ enum resctrl_ctrl_name {
 
 /**
  * enum resctrl_ctrl_config_name - Control's config name.
- * @RESCTRL_CTRL_CONFIG_NAME_LAST:	Highest valid config name. Bootstrap
- *					value used until the first control config
- *					is introduced.
+ * @RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM:	MB_MAX hard limit
  */
 enum resctrl_ctrl_config_name {
-	RESCTRL_CTRL_CONFIG_NAME_LAST = 0,
+	RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM,
+	RESCTRL_CTRL_CONFIG_NAME_LAST = RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM,
 };
 
 /**
@@ -534,6 +533,12 @@ struct resctrl_mon_config_info {
  * execution based on @current, in the same way as during a task switch.
  */
 void resctrl_arch_sync_cpu_closid_rmid(void *info);
+
+static inline bool
+resctrl_ctrl_config_mb_maxhlim(struct resctrl_ctrl_config *config)
+{
+	return config && config->name == RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM;
+}
 
 /**
  * resctrl_get_default_ctrlval() - Return the default control value for this

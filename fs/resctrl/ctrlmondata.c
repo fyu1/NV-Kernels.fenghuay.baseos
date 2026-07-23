@@ -70,6 +70,29 @@ static struct resctrl_ctrl_priv resctrl_ctrl_priv_all[] = {
 	},
 };
 
+static bool mb_maxhlim_validate(char *buf, u32 *data, struct rdt_resource *r,
+				struct resctrl_ctrl *ctrl)
+{
+	int ret;
+	u32 mb_maxhlim;
+
+	ret = kstrtou32(buf, 10, &mb_maxhlim);
+	if (ret) {
+		rdt_last_cmd_printf("Invalid MB_MAXHLIM value %s\n", buf);
+		return false;
+	}
+
+	if (mb_maxhlim != 0 && mb_maxhlim != 1) {
+		rdt_last_cmd_printf("MB_MAXHLIM value %u isn't 0/1\n",
+				    mb_maxhlim);
+		return false;
+	}
+
+	*data = mb_maxhlim;
+
+	return true;
+}
+
 /*
  * Check whether MBA bandwidth percentage value is correct. The value is
  * checked against the minimum and max bandwidth values specified by the
@@ -122,6 +145,28 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 		return -EINVAL;
 	}
 
+	/* Parse MB_MAXHLIM config line */
+	if (resctrl_ctrl_config_mb_maxhlim(data->line_config)) {
+		if (!mb_maxhlim_validate(data->buf, &bw_val, r, ctrl))
+			return -EINVAL;
+
+		if (cfg->have_new_ctrl) {
+			if (cfg->new_ctrl != bw_val) {
+				rdt_last_cmd_printf("Conflicting values for domain %d\n",
+						    d->hdr.id);
+				return -EINVAL;
+			}
+			return 0;
+		}
+
+		cfg->new_ctrl = bw_val;
+		cfg->have_new_ctrl = true;
+		cfg->staged_ctrl = data->line_ctrl;
+		cfg->staged_config = data->line_config;
+		return 0;
+	}
+
+	/* Parse mb line */
 	if (!bw_validate(data->buf, &bw_val, r, ctrl))
 		return -EINVAL;
 
@@ -380,6 +425,10 @@ static const char * const resctrl_ctrl_name[] = {
 	[RESCTRL_CTRL_NAME_MIN]		= "MIN",
 	[RESCTRL_CTRL_NAME_MAX]		= "MAX",
 	[RESCTRL_CTRL_NAME_NODE]	= "NODE",
+};
+
+static const char * const resctrl_ctrl_config_name[] = {
+	[RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM] = "MAXHLIM",
 };
 
 const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)

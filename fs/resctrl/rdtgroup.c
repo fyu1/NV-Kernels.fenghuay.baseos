@@ -2241,8 +2241,11 @@ static int resctrl_ctrl_config_type_show(struct kernfs_open_file *of,
 	struct resctrl_ctrl_config *ctrl_config = rdt_kn_parent_priv(of->kn);
 
 	switch (ctrl_config->name) {
+	case RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM:
+		seq_puts(seq, "bool\n");
+		return 0;
 	default:
-		/* resctrl does not yet support any control config */
+		/* resctrl does not yet support any other control config */
 		seq_puts(seq, "Unsupported control config\n");
 		return 0;
 	}
@@ -2265,7 +2268,14 @@ resctrl_ctrl_config_full_name(struct resctrl_ctrl_config *ctrl_config,
 			      char *ctrl_config_full_name,
 			      int size)
 {
+	int ret;
+
 	switch (ctrl_config->name) {
+	case RESCTRL_CTRL_CONFIG_NAME_MB_MAXHLIM:
+		ret = snprintf(ctrl_config_full_name, size, "MB_MAXHLIM");
+		if (ret >= size)
+			return -ENOSPC;
+		break;
 	default:
 		pr_err("invalid resctrl control config name\n");
 		rdt_last_cmd_puts("invalid resctrl control config name\n");
@@ -4497,6 +4507,27 @@ static void rdtgroup_init_mba(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	}
 }
 
+/* Initialize MBA control configs with default values. */
+static void rdtgroup_init_mba_configs(struct resctrl_ctrl *ctrl)
+{
+	struct resctrl_ctrl_config *config;
+	struct resctrl_staged_config *cfg;
+	struct rdt_ctrl_domain *d;
+
+	for_each_resource_ctrl_config(config, ctrl) {
+		if (!resctrl_ctrl_config_mb_maxhlim(config))
+			continue;
+
+		list_for_each_entry(d, &ctrl->domains, hdr.list) {
+			cfg = &d->staged_configs[CDP_NONE];
+			cfg->new_ctrl = 0;
+			cfg->have_new_ctrl = true;
+			cfg->staged_ctrl = ctrl;
+			cfg->staged_config = config;
+		}
+	}
+}
+
 /* Initialize the RDT group's allocations. */
 static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 {
@@ -4513,6 +4544,7 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 			if (r->rid == RDT_RESOURCE_MBA ||
 			    r->rid == RDT_RESOURCE_SMBA) {
 				rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
+				rdtgroup_init_mba_configs(ctrl);
 				if (is_mba_sc(r, ctrl))
 					continue;
 			} else {
