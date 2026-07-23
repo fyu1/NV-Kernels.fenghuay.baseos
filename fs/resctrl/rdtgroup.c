@@ -120,8 +120,12 @@ void rdt_staged_configs_clear(void)
 
 	for_each_alloc_capable_rdt_resource(r) {
 		for_each_resource_ctrl(ctrl, r) {
-			list_for_each_entry(dom, &ctrl->domains, hdr.list)
-				memset(dom->staged_config, 0, sizeof(dom->staged_config));
+			list_for_each_entry(dom, &ctrl->domains, hdr.list) {
+				memset(dom->staged_config, 0,
+				       sizeof(dom->staged_config));
+				memset(dom->staged_configs, 0,
+				       sizeof(dom->staged_configs));
+			}
 		}
 	}
 }

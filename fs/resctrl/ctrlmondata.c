@@ -377,6 +377,30 @@ const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
 	return resctrl_ctrl_name[name];
 }
 
+static const char *
+resctrl_ctrl_config_name_str(enum resctrl_ctrl_config_name name)
+{
+	if (name > RESCTRL_CTRL_CONFIG_NAME_LAST) {
+		pr_warn("Unknown control config name\n");
+		return NULL;
+	}
+
+	return resctrl_ctrl_config_name[name];
+}
+
+static void
+resctrl_ctrl_config_format_name(struct resctrl_ctrl *ctrl,
+				struct resctrl_ctrl_config *config,
+				char *buf, size_t size)
+{
+	if (resctrl_ctrl_is_default(ctrl))
+		snprintf(buf, size, "%s",
+			 resctrl_ctrl_config_name_str(config->name));
+	else
+		snprintf(buf, size, "%s_%s", resctrl_ctrl_name_str(ctrl->name),
+			 resctrl_ctrl_config_name_str(config->name));
+}
+
 struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
 	struct resctrl_ctrl *ctrl;
@@ -448,23 +472,54 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 	return NULL;
 }
 
+static struct resctrl_ctrl_config *
+resctrl_resource_ctrl_config_get(struct rdt_resource *r, const char *name,
+				 struct resctrl_ctrl **ctrl_out)
+{
+	struct resctrl_ctrl_config *config;
+	struct resctrl_ctrl *ctrl;
+	char config_name[24];
+
+	for_each_resource_ctrl(ctrl, r) {
+		for_each_resource_ctrl_config(config, ctrl) {
+			resctrl_ctrl_config_format_name(ctrl, config, config_name,
+							sizeof(config_name));
+			if (!strcmp(name, config_name)) {
+				*ctrl_out = ctrl;
+				return config;
+			}
+		}
+	}
+
+	*ctrl_out = NULL;
+	return NULL;
+}
+
 /*
  * Return length needed to display longest control suffix.
  * Add 1 for the "_" character when control name exists.
  */
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 {
+	struct resctrl_ctrl_config *config;
 	struct resctrl_ctrl *ctrl;
-	size_t total = 0;
+	char config_name[24];
+	size_t max = 0;
 	size_t len;
 
-	for_each_resource_ctrl(ctrl,r) {
+	for_each_resource_ctrl(ctrl, r) {
 		len = strlen(resctrl_ctrl_name_str(ctrl->name));
 		if (len)
-			total += 1 + len;
+			max = max_t(size_t, max, 1 + len);
+
+		for_each_resource_ctrl_config(config, ctrl) {
+			resctrl_ctrl_config_format_name(ctrl, config, config_name,
+							sizeof(config_name));
+			max = max_t(size_t, max, 1 + strlen(config_name));
+		}
 	}
 
-	return total;
+	return max;
 }
 
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
@@ -608,6 +663,49 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 	seq_puts(s, "\n");
 }
 
+static void show_config_doms(struct seq_file *s, struct rdt_resource_final *f,
+			     bool print_ctrl, int closid,
+			     struct resctrl_ctrl *ctrl)
+{
+	struct resctrl_ctrl_config *config;
+	struct rdt_resource *r = f->res;
+	struct rdt_ctrl_domain *dom;
+	u32 ctrl_val;
+
+	/* Walking ctrl->domains, ensure it can't race with cpuhp */
+	lockdep_assert_cpus_held();
+
+	for_each_resource_ctrl_config(config, ctrl) {
+		bool sep = false;
+
+		if (print_ctrl) {
+			char label[32];
+
+			if (resctrl_ctrl_is_default(ctrl))
+				snprintf(label, sizeof(label), "%s_%s", f->name,
+					 resctrl_ctrl_config_name_str(config->name));
+			else
+				snprintf(label, sizeof(label), "%s_%s_%s", f->name,
+					 resctrl_ctrl_name_str(ctrl->name),
+					 resctrl_ctrl_config_name_str(config->name));
+			seq_printf(s, "%*s:", max_name_width, label);
+		}
+
+		list_for_each_entry(dom, &ctrl->domains, hdr.list) {
+			if (sep)
+				seq_puts(s, ";");
+
+			ctrl_val = resctrl_arch_get_ctrl_config(r, ctrl, config,
+								dom, closid,
+								f->conf_type);
+			seq_printf(s, resctrl_ctrl_priv_all[ctrl->type].fmt_str,
+				   dom->hdr.id, ctrl_val);
+			sep = true;
+		}
+		seq_puts(s, "\n");
+	}
+}
+
 int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			   struct seq_file *s, void *v)
 {
@@ -646,9 +744,9 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 				if (closid >= f->num_closid)
 					continue;
 				for_each_resource_ctrl(ctrl, f->res) {
-					if (resctrl_ctrl_schemata_hidden(f->res, ctrl))
-						continue;
-					show_doms(s, f, true, closid, ctrl);
+					if (!resctrl_ctrl_schemata_hidden(f->res, ctrl))
+						show_doms(s, f, true, closid, ctrl);
+					show_config_doms(s, f, true, closid, ctrl);
 				}
 			}
 		}

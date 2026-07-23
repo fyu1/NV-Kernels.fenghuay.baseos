@@ -1638,6 +1638,14 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	}
 }
 
+u32 resctrl_arch_get_ctrl_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 struct resctrl_ctrl_config *config,
+				 struct rdt_ctrl_domain *d, u32 closid,
+				 enum resctrl_conf_type type)
+{
+	return 0;
+}
+
 int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			    struct rdt_ctrl_domain *d, u32 closid,
 			    enum resctrl_conf_type t, u32 cfg_val)
@@ -1717,6 +1725,15 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	}
 
 	return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
+}
+
+int resctrl_arch_update_ctrl_config(struct rdt_resource *r,
+				    struct resctrl_ctrl *ctrl,
+				    struct resctrl_ctrl_config *config,
+				    struct rdt_ctrl_domain *d, u32 closid,
+				    enum resctrl_conf_type t, u32 cfg_val)
+{
+	return -EINVAL;
 }
 
 static int _resctrl_arch_update_domains(struct rdt_resource *r, struct resctrl_ctrl *ctrl,

@@ -106,6 +106,23 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	return hw_dom->ctrl_val[idx];
 }
 
+u32 resctrl_arch_get_ctrl_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 struct resctrl_ctrl_config *config,
+				 struct rdt_ctrl_domain *d, u32 closid,
+				 enum resctrl_conf_type type)
+{
+	return 0;
+}
+
+int resctrl_arch_update_ctrl_config(struct rdt_resource *r,
+				    struct resctrl_ctrl *ctrl,
+				    struct resctrl_ctrl_config *config,
+				    struct rdt_ctrl_domain *d, u32 closid,
+				    enum resctrl_conf_type t, u32 cfg_val)
+{
+	return -EINVAL;
+}
+
 bool resctrl_arch_get_io_alloc_enabled(struct rdt_resource *r)
 {
 	return resctrl_to_arch_res(r)->sdciae_enabled;

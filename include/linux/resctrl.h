@@ -129,11 +129,14 @@ struct pseudo_lock_region {
  *			line from the mirrored write of an emulated control
  *			and the control that backs it, which share the same
  *			staged config.
+ * @staged_config:	the control config whose schemata line staged this
+ *			config, or NULL for a control line.
  */
 struct resctrl_staged_config {
 	u32			new_ctrl;
 	bool			have_new_ctrl;
 	struct resctrl_ctrl	*staged_ctrl;
+	struct resctrl_ctrl_config *staged_config;
 };
 
 enum resctrl_domain_type {
@@ -169,6 +172,7 @@ static inline bool domain_header_is_valid(struct rdt_domain_hdr *hdr,
  * @hdr:		common header for different domain types
  * @plr:		pseudo-locked region (if any) associated with domain
  * @staged_config:	parsed configuration to be applied
+ * @staged_configs:	parsed control-config values to be applied
  * @mbps_val:		When mba_sc is enabled, this holds the array of user
  *			specified control values for mba_sc in MBps, indexed
  *			by closid
@@ -177,6 +181,7 @@ struct rdt_ctrl_domain {
 	struct rdt_domain_hdr		hdr;
 	struct pseudo_lock_region	*plr;
 	struct resctrl_staged_config	staged_config[CDP_NUM_TYPES];
+	struct resctrl_staged_config	staged_configs[CDP_NUM_TYPES];
 	u32				*mbps_val;
 };
 
@@ -669,6 +674,15 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			    struct rdt_ctrl_domain *d, u32 closid,
 			    enum resctrl_conf_type type);
+u32 resctrl_arch_get_ctrl_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 struct resctrl_ctrl_config *config,
+				 struct rdt_ctrl_domain *d, u32 closid,
+				 enum resctrl_conf_type type);
+int resctrl_arch_update_ctrl_config(struct rdt_resource *r,
+				    struct resctrl_ctrl *ctrl,
+				    struct resctrl_ctrl_config *config,
+				    struct rdt_ctrl_domain *d, u32 closid,
+				    enum resctrl_conf_type t, u32 cfg_val);
 int resctrl_online_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ctrl, struct rdt_ctrl_domain *d);
 int resctrl_online_mon_domain(struct rdt_resource *r, struct rdt_domain_hdr *hdr);
 void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ctrl, struct rdt_ctrl_domain *d);
