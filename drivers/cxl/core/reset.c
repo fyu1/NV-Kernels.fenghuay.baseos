@@ -167,9 +167,13 @@ int cxl_hdm_decode_decoder(struct cxl_decoder_settings *settings, int id,
 	if (base == U64_MAX || size == U64_MAX ||
 	    (size && base > U64_MAX - (size - 1)))
 		return -ENXIO;
-	if (enabled && !size)
-		return -ENXIO;
 
+	/*
+	 * CXL r3.2 8.2.4.20.12 permits committing a decoder with size 0, and
+	 * firmware uses that to burn unused decoder slots. A zero size yields
+	 * an empty range (end == start - 1), so range_len() is 0 and callers
+	 * that cannot consume an empty decoder must skip it.
+	 */
 	settings->hpa_range = (struct range) {
 		.start = base,
 		.end = base + size - 1,
@@ -958,6 +962,10 @@ static int cxl_hdm_ranges_collect(struct cxl_hdm_range_context *ctx,
 		struct cxl_decoder_settings *settings = &info->settings[i];
 
 		if (!(settings->flags & CXL_DECODER_F_ENABLE))
+			continue;
+
+		/* A committed zero-size decoder maps no HPA */
+		if (!range_len(&settings->hpa_range))
 			continue;
 
 		if (settings->flags & CXL_DECODER_F_NORMALIZED_ADDRESSING) {
