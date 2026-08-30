@@ -457,6 +457,15 @@ int mbm_L3_assignments_show(struct kernfs_open_file *of, struct seq_file *s, voi
 
 ssize_t mbm_L3_assignments_write(struct kernfs_open_file *of, char *buf, size_t nbytes,
 				 loff_t off);
+
+int resctrl_mbm_assign_scope_mode_show(struct kernfs_open_file *of, struct seq_file *s,
+				       void *v);
+
+ssize_t resctrl_mbm_assign_scope_mode_write(struct kernfs_open_file *of, char *buf,
+					    size_t nbytes, loff_t off);
+
+void resctrl_mbm_assign_files_apply(struct kernfs_node *kn);
+
 int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, void *v);
 
 int rdtgroup_init_cat(struct rdt_resource_final *f, struct resctrl_ctrl *ctrl,

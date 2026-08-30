@@ -2317,6 +2317,13 @@ static struct rftype res_common_files[] = {
 		.write		= mbm_NODE_assignments_write,
 	},
 	{
+		.name		= "mbm_assign_scope_mode",
+		.mode		= 0644,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_mbm_assign_scope_mode_show,
+		.write		= resctrl_mbm_assign_scope_mode_write,
+	},
+	{
 		.name		= "mbm_assign_mode",
 		.mode		= 0644,
 		.kf_ops		= &rdtgroup_kf_single_ops,
@@ -2652,6 +2659,8 @@ static int rdtgroup_add_files(struct kernfs_node *kn, unsigned long fflags)
 				goto error;
 		}
 	}
+
+	resctrl_mbm_assign_files_apply(kn);
 
 	return 0;
 error:

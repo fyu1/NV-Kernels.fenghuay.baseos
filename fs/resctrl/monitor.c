@@ -18,6 +18,7 @@
 #define pr_fmt(fmt)	"resctrl: " fmt
 
 #include <linux/cpu.h>
+#include <linux/kernfs.h>
 #include <linux/resctrl.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
@@ -1704,6 +1705,130 @@ out_unlock:
 	return ret;
 }
 
+static bool resctrl_mbm_has_node_mscs(void)
+{
+	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
+
+	return r->mon_capable && r->mon_scope == RESCTRL_NODE;
+}
+
+static bool resctrl_mbm_show_l3_assignments(void)
+{
+	return !resctrl_arch_get_resource(RDT_RESOURCE_MBA)->mon.mbm_assign_scope_native ||
+	       !resctrl_mbm_has_node_mscs();
+}
+
+static bool resctrl_mbm_show_node_assignments(void)
+{
+	return resctrl_arch_get_resource(RDT_RESOURCE_MBA)->mon.mbm_assign_scope_native &&
+	       resctrl_mbm_has_node_mscs();
+}
+
+static struct rdt_resource *mbm_l3_assignments_resource(void)
+{
+	if (resctrl_mbm_has_node_mscs())
+		return resctrl_arch_get_resource(RDT_RESOURCE_MBA);
+
+	return resctrl_arch_get_resource(RDT_RESOURCE_L3);
+}
+
+static void resctrl_mbm_assign_file_show(struct kernfs_node *parent, const char *name,
+					 bool show)
+{
+	struct kernfs_node *kn;
+
+	kn = kernfs_find_and_get(parent, name);
+	if (!kn)
+		return;
+
+	kernfs_show(kn, show);
+	kernfs_put(kn);
+}
+
+void resctrl_mbm_assign_files_apply(struct kernfs_node *kn)
+{
+	if (!kn)
+		return;
+
+	resctrl_mbm_assign_file_show(kn, "mbm_L3_assignments",
+				     resctrl_mbm_show_l3_assignments());
+	resctrl_mbm_assign_file_show(kn, "mbm_NODE_assignments",
+				     resctrl_mbm_show_node_assignments());
+}
+
+static void resctrl_mbm_assign_files_apply_all(void)
+{
+	struct rdtgroup *prgrp, *crgrp;
+
+	lockdep_assert_held(&rdtgroup_mutex);
+
+	list_for_each_entry(prgrp, &rdt_all_groups, rdtgroup_list) {
+		resctrl_mbm_assign_files_apply(prgrp->kn);
+		list_for_each_entry(crgrp, &prgrp->mon.crdtgrp_list, mon.crdtgrp_list)
+			resctrl_mbm_assign_files_apply(crgrp->kn);
+	}
+}
+
+int resctrl_mbm_assign_scope_mode_show(struct kernfs_open_file *of,
+				       struct seq_file *s, void *v)
+{
+	struct rdt_resource *r = rdt_kn_parent_priv(of->kn);
+
+	if (!info_kn_lock(of->kn))
+		return -ENOENT;
+
+	if (r->mon.mbm_assign_scope_native)
+		seq_puts(s, "legacy [native]\n");
+	else
+		seq_puts(s, "[legacy] native\n");
+
+	info_kn_unlock(of->kn);
+
+	return 0;
+}
+
+ssize_t resctrl_mbm_assign_scope_mode_write(struct kernfs_open_file *of, char *buf,
+					    size_t nbytes, loff_t off)
+{
+	struct rdt_resource *r = rdt_kn_parent_priv(of->kn);
+	bool native;
+	int ret = 0;
+
+	if (!info_kn_lock(of->kn))
+		return -ENOENT;
+
+	rdt_last_cmd_clear();
+
+	/* Valid input requires a trailing newline */
+	if (nbytes == 0 || buf[nbytes - 1] != '\n') {
+		rdt_last_cmd_puts("mbm_assign_scope_mode: Invalid input\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	buf[nbytes - 1] = '\0';
+
+	if (!strcmp(buf, "legacy")) {
+		native = false;
+	} else if (!strcmp(buf, "native")) {
+		native = true;
+	} else {
+		rdt_last_cmd_puts("Unsupported assign scope mode\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (r->mon.mbm_assign_scope_native != native) {
+		r->mon.mbm_assign_scope_native = native;
+		resctrl_mbm_assign_files_apply_all();
+	}
+
+out_unlock:
+	info_kn_unlock(of->kn);
+
+	return ret ?: nbytes;
+}
+
 static int mbm_assignments_show(struct kernfs_open_file *of, struct seq_file *s,
 				void *v, struct rdt_resource *r)
 {
@@ -1753,8 +1878,7 @@ out_unlock:
 
 int mbm_L3_assignments_show(struct kernfs_open_file *of, struct seq_file *s, void *v)
 {
-	return mbm_assignments_show(of, s, v,
-				    resctrl_arch_get_resource(RDT_RESOURCE_L3));
+	return mbm_assignments_show(of, s, v, mbm_l3_assignments_resource());
 }
 
 int mbm_NODE_assignments_show(struct kernfs_open_file *of, struct seq_file *s, void *v)
@@ -1873,7 +1997,7 @@ static ssize_t mbm_assignments_write(struct kernfs_open_file *of, char *buf,
 
 	/* Valid input requires a trailing newline */
 	if (nbytes == 0 || buf[nbytes - 1] != '\n') {
-		rdt_last_cmd_puts("mbm_L3_assignments: Invalid input\n");
+		rdt_last_cmd_puts("mbm assignments: Invalid input\n");
 		ret = -EINVAL;
 		goto out_unlock;
 	}
@@ -1909,14 +2033,14 @@ ssize_t mbm_L3_assignments_write(struct kernfs_open_file *of, char *buf,
 				 size_t nbytes, loff_t off)
 {
 	return mbm_assignments_write(of, buf, nbytes, off,
-			resctrl_arch_get_resource(RDT_RESOURCE_L3));
+				     mbm_l3_assignments_resource());
 }
 
 ssize_t mbm_NODE_assignments_write(struct kernfs_open_file *of, char *buf,
 				   size_t nbytes, loff_t off)
 {
 	return mbm_assignments_write(of, buf, nbytes, off,
-			resctrl_arch_get_resource(RDT_RESOURCE_MBA));
+				     resctrl_arch_get_resource(RDT_RESOURCE_MBA));
 }
 
 static int closid_num_dirty_rmid_alloc(struct rdt_resource *r)
@@ -2012,10 +2136,15 @@ static void resctrl_mon_resource_init(struct rdt_resource *r)
 			resctrl_file_mode_init("event_filter", 0644);
 		resctrl_file_fflags_init("mbm_assign_on_mkdir", RFTYPE_MON_INFO |
 					 fflags);
-		if (r->rid == RDT_RESOURCE_MBA)
-			resctrl_file_fflags_init("mbm_NODE_assignments", RFTYPE_MON_BASE);
-		else
-			resctrl_file_fflags_init("mbm_L3_assignments", RFTYPE_MON_BASE);
+		resctrl_file_fflags_init("mbm_L3_assignments", RFTYPE_MON_BASE);
+		if (r->rid == RDT_RESOURCE_MBA) {
+			r->mon.mbm_assign_scope_native = false;
+			resctrl_file_fflags_init("mbm_assign_scope_mode",
+						 RFTYPE_MON_INFO | RFTYPE_RES_MB);
+			if (r->mon_scope == RESCTRL_NODE)
+				resctrl_file_fflags_init("mbm_NODE_assignments",
+							 RFTYPE_MON_BASE);
+		}
 		resctrl_file_fflags_init("mbm_assign_mode", RFTYPE_MON_INFO |
 					 fflags);
 	}

@@ -380,6 +380,11 @@ enum resctrl_ctrl_type {
  *				events of monitor groups created via mkdir.
  * @mbm_cntr_configurable:	True if assignable counters are configurable.
  * @mbm_cntr_assign_fixed:	True if the counter assignment mode is fixed.
+ * @mbm_assign_scope_native:	True if assignment files use native names.
+ *				Legacy mode always exposes "mbm_L3_assignments".
+ *				Native mode exposes "mbm_NODE_assignments" when
+ *				NUMA node MSCs are present, otherwise
+ *				"mbm_L3_assignments".
  */
 struct resctrl_mon {
 	u32			num_rmid;
@@ -389,6 +394,7 @@ struct resctrl_mon {
 	bool			mbm_assign_on_mkdir;
 	bool			mbm_cntr_configurable;
 	bool			mbm_cntr_assign_fixed;
+	bool			mbm_assign_scope_native;
 };
 
 /**
