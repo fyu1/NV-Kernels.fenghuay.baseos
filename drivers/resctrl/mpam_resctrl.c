@@ -1264,20 +1264,108 @@ void resctrl_arch_config_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *
 	resctrl_arch_reset_cntr(r, d, closid, rmid, cntr_id, evtid);
 }
 
+/*
+ * Bandwidth control on a memory-class MSC is node-scoped, unlike the
+ * cache-scoped control provided by an MSC in front of the L3.
+ */
+static bool mpam_resctrl_ctrl_node(struct rdt_resource *r)
+{
+	struct mpam_resctrl_res *res;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+
+	return mpam_class_memory(res->class);
+}
+
+static bool mpam_resctrl_cache_has_mba(void)
+{
+	struct mpam_class *class = mpam_resctrl_controls[RDT_RESOURCE_L3].class;
+
+	if (!class)
+		return false;
+
+	return class_has_usable_mba(&class->props);
+}
+
+static void _mpam_resctrl_ctrl_init_mba(struct mpam_resctrl_ctrl *mpam_ctrl,
+					struct mpam_props *cprops,
+					enum resctrl_ctrl_name name)
+{
+	mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	mpam_ctrl->r_ctrl.name = name;
+	INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+	INIT_LIST_HEAD(&mpam_ctrl->r_ctrl.emulated_by);
+
+	__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, mpam_ctrl->r_ctrl.scalar.flags);
+	mpam_ctrl->r_ctrl.scalar.min = get_mba_min(cprops);
+	mpam_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
+	mpam_ctrl->r_ctrl.scalar.reset_val = MAX_MBA_BW;
+	mpam_ctrl->r_ctrl.scalar.gran = get_mba_granularity(cprops);
+}
+
+static int mpam_resctrl_ctrl_init_mba(struct rdt_resource *r,
+				      struct mpam_props *cprops)
+{
+	struct mpam_resctrl_ctrl *ctrl_def, *ctrl_node;
+
+	ctrl_def = kzalloc_obj(*ctrl_def);
+	if (!ctrl_def)
+		return -ENOMEM;
+
+	_mpam_resctrl_ctrl_init_mba(ctrl_def, cprops, RESCTRL_CTRL_NAME_DEF);
+	list_add(&ctrl_def->r_ctrl.entry, &r->controls);
+
+	if (!mpam_resctrl_ctrl_node(r)) {
+		r->ctrl_scope = RESCTRL_L3_CACHE;
+		return 0;
+	}
+
+	/*
+	 * The control domains of a memory class follow the memory
+	 * controllers, one per NUMA node.
+	 */
+	r->ctrl_scope = RESCTRL_NODE;
+
+	/*
+	 * When the L3 cache has usable bandwidth control the legacy MB control
+	 * is backed by that hardware and needs no emulation.
+	 */
+	if (mpam_resctrl_cache_has_mba())
+		return 0;
+
+	ctrl_node = kzalloc_obj(*ctrl_node);
+	if (!ctrl_node)
+		return -ENOMEM;
+
+	_mpam_resctrl_ctrl_init_mba(ctrl_node, cprops, RESCTRL_CTRL_NAME_NODE);
+
+	/*
+	 * MB has no bandwidth hardware of its own, so back it with the
+	 * node-scoped MB_NODE control. Legacy mode keeps the "MB:" schemata
+	 * line for backward compatibility, native mode exposes MB_NODE
+	 * instead.
+	 */
+	list_add(&ctrl_node->r_ctrl.entry, &ctrl_def->r_ctrl.emulated_by);
+	r->ctrl_mode = RESCTRL_CTRL_MODE_LEGACY;
+
+	return 0;
+}
+
 static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 {
 	struct mpam_class *class = res->class;
 	struct mpam_props *cprops = &class->props;
 	struct rdt_resource *r = &res->resctrl_res;
 	struct mpam_resctrl_ctrl *mpam_ctrl;
-
-	mpam_ctrl = kzalloc_obj(*mpam_ctrl);
-	if (!mpam_ctrl)
-		return -ENOMEM;
+	int ret;
 
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
+		mpam_ctrl = kzalloc_obj(*mpam_ctrl);
+		if (!mpam_ctrl)
+			return -ENOMEM;
+
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
@@ -1308,20 +1396,11 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
-		r->ctrl_scope = RESCTRL_L3_CACHE;
-		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
-		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
-		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
-		INIT_LIST_HEAD(&mpam_ctrl->r_ctrl.emulated_by);
+		ret = mpam_resctrl_ctrl_init_mba(r, cprops);
+		if (ret)
+			return ret;
 
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-		__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, mpam_ctrl->r_ctrl.scalar.flags);
-		mpam_ctrl->r_ctrl.scalar.min = get_mba_min(cprops);
-		mpam_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
-		mpam_ctrl->r_ctrl.scalar.reset_val = MAX_MBA_BW;
-		mpam_ctrl->r_ctrl.scalar.gran = get_mba_granularity(cprops);
-		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
-
 		r->name = "MB";
 		r->alloc_capable = true;
 		break;
@@ -1484,7 +1563,7 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	struct mpam_props *cprops;
 	struct mpam_resctrl_res *res;
 	struct mpam_resctrl_dom *dom;
-	enum mpam_device_features configured_by;
+	enum mpam_device_features configured_by = MPAM_FEATURE_LAST;
 
 	lockdep_assert_cpus_held();
 
@@ -1512,16 +1591,26 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		configured_by = mpam_feat_cpor_part;
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			configured_by = mpam_feat_mbw_max;
+		/*
+		 * MB and its emulating MB_NODE control are both backed by the
+		 * same MPAM bandwidth partitioning hardware.
+		 */
+		switch (ctrl->name) {
+		case RESCTRL_CTRL_NAME_DEF:
+		case RESCTRL_CTRL_NAME_NODE:
+			if (mpam_has_feature(mpam_feat_mbw_max, cprops))
+				configured_by = mpam_feat_mbw_max;
+			break;
+		default:
 			break;
 		}
-		fallthrough;
+		break;
 	default:
 		return resctrl_get_default_ctrlval(ctrl);
 	}
 
-	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r) ||
+	if (configured_by == MPAM_FEATURE_LAST || !r->alloc_capable ||
+	    partid >= resctrl_arch_get_num_closid(r) ||
 	    !mpam_has_feature(configured_by, cfg))
 		return resctrl_get_default_ctrlval(ctrl);
 
@@ -1582,12 +1671,19 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		mpam_set_feature(mpam_feat_cpor_part, &cfg);
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
+		switch (ctrl->name) {
+		case RESCTRL_CTRL_NAME_DEF:
+		case RESCTRL_CTRL_NAME_NODE:
+			if (!mpam_has_feature(mpam_feat_mbw_max, cprops))
+				return -EINVAL;
+
 			cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
 			mpam_set_feature(mpam_feat_mbw_max, &cfg);
 			break;
+		default:
+			return -EINVAL;
 		}
-		fallthrough;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1650,9 +1746,17 @@ int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
 	 * controls? How to communicate to user space?
 	 */
 	for_each_resource_ctrl(ctrl, r) {
+		struct resctrl_ctrl *em_ctrl;
+
 		err = _resctrl_arch_update_domains(r, ctrl, closid);
 		if (err)
 			return err;
+
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+			err = _resctrl_arch_update_domains(r, em_ctrl, closid);
+			if (err)
+				return err;
+		}
 	}
 
 	return 0;
@@ -1915,6 +2019,81 @@ mpam_resctrl_get_ctrl_domain_from_cpu(int cpu, struct mpam_resctrl_res *res,
 	return NULL;
 }
 
+static int mpam_resctrl_online_ctrl(unsigned int cpu, struct mpam_resctrl_res *res,
+				    struct resctrl_ctrl *ctrl,
+				    struct mpam_component *comp)
+{
+	struct mpam_resctrl_dom *dom;
+
+	dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res, ctrl, comp);
+	if (!dom) {
+		dom = mpam_resctrl_alloc_ctrl_domain(cpu, res, ctrl, comp);
+		if (IS_ERR(dom))
+			return PTR_ERR(dom);
+
+		return 0;
+	}
+
+	mpam_resctrl_online_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr);
+
+	return 0;
+}
+
+static void mpam_resctrl_offline_ctrl(unsigned int cpu, struct mpam_resctrl_res *res,
+				      struct resctrl_ctrl *ctrl,
+				      struct mpam_component *comp)
+{
+	struct rdt_ctrl_domain *ctrl_d;
+	struct mpam_resctrl_dom *dom;
+
+	dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res, ctrl, comp);
+	if (WARN_ON_ONCE(!dom))
+		return;
+
+	ctrl_d = &dom->resctrl_ctrl_dom;
+	if (mpam_resctrl_offline_domain_hdr(cpu, &ctrl_d->hdr)) {
+		resctrl_offline_ctrl_domain(&res->resctrl_res, ctrl, ctrl_d);
+		kfree(dom);
+	}
+}
+
+/* Controls that emulate another control need domains of their own. */
+static int mpam_resctrl_online_ctrls(unsigned int cpu, struct mpam_resctrl_res *res,
+				     struct mpam_component *comp)
+{
+	struct rdt_resource *r = &res->resctrl_res;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
+	int err;
+
+	for_each_resource_ctrl(ctrl, r) {
+		err = mpam_resctrl_online_ctrl(cpu, res, ctrl, comp);
+		if (err)
+			return err;
+
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+			err = mpam_resctrl_online_ctrl(cpu, res, em_ctrl, comp);
+			if (err)
+				return err;
+		}
+	}
+
+	return 0;
+}
+
+static void mpam_resctrl_offline_ctrls(unsigned int cpu, struct mpam_resctrl_res *res,
+				       struct mpam_component *comp)
+{
+	struct rdt_resource *r = &res->resctrl_res;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
+
+	for_each_resource_ctrl(ctrl, r) {
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry)
+			mpam_resctrl_offline_ctrl(cpu, res, em_ctrl, comp);
+
+		mpam_resctrl_offline_ctrl(cpu, res, ctrl, comp);
+	}
+}
+
 int mpam_resctrl_online_cpu(unsigned int cpu)
 {
 	struct mpam_resctrl_res *res;
@@ -1925,7 +2104,6 @@ int mpam_resctrl_online_cpu(unsigned int cpu)
 	for_each_mpam_resctrl_control(res, rid) {
 		struct mpam_resctrl_dom *dom;
 		struct rdt_resource *r = &res->resctrl_res;
-		struct resctrl_ctrl *ctrl;
 
 		if (!res->class)
 			continue;	// dummy_resource;
@@ -1937,21 +2115,10 @@ int mpam_resctrl_online_cpu(unsigned int cpu)
 				continue;
 
 			if (r->alloc_capable) {
-				for_each_resource_ctrl(ctrl, r) {
-					dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res,
-										    ctrl, comp);
-					if (!dom) {
-						dom = mpam_resctrl_alloc_ctrl_domain(cpu, res,
-										     ctrl, comp);
-					} else {
-						struct rdt_ctrl_domain *ctrl_d =
-							&dom->resctrl_ctrl_dom;
+				int err = mpam_resctrl_online_ctrls(cpu, res, comp);
 
-						mpam_resctrl_online_domain_hdr(cpu, &ctrl_d->hdr);
-					}
-					if (IS_ERR(dom))
-						return PTR_ERR(dom);
-				}
+				if (err)
+					return err;
 			}
 			if (r->mon_capable) {
 				dom = mpam_resctrl_get_mon_domain_from_cpu(cpu, res, comp);
@@ -1985,8 +2152,6 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 	for_each_mpam_resctrl_control(res, rid) {
 		struct mpam_resctrl_dom *dom;
 		struct rdt_l3_mon_domain *mon_d;
-		struct rdt_ctrl_domain *ctrl_d;
-		struct resctrl_ctrl *ctrl;
 		bool dom_empty;
 		struct rdt_resource *r = &res->resctrl_res;
 
@@ -1999,22 +2164,8 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 			if (!cpumask_test_cpu(cpu, &comp->affinity))
 				continue;
 
-			if (r->alloc_capable) {
-				for_each_resource_ctrl(ctrl, r) {
-					dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res,
-										    ctrl, comp);
-					if (WARN_ON_ONCE(!dom))
-						continue;
-					ctrl_d = &dom->resctrl_ctrl_dom;
-					dom_empty = mpam_resctrl_offline_domain_hdr(cpu,
-										    &ctrl_d->hdr);
-					if (dom_empty) {
-						resctrl_offline_ctrl_domain(&res->resctrl_res, ctrl,
-									    ctrl_d);
-						kfree(dom);
-					}
-				}
-			}
+			if (r->alloc_capable)
+				mpam_resctrl_offline_ctrls(cpu, res, comp);
 
 			if (r->mon_capable) {
 				dom = mpam_resctrl_get_mon_domain_from_cpu(cpu, res, comp);
