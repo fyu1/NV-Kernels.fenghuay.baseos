@@ -550,8 +550,10 @@ with the following files:
 	the user. Each event within a resctrl group can be assigned independently.
 
 	In this mode, a monitoring event can only accumulate data while it is backed
-	by a hardware counter. Use "mbm_L3_assignments" found in each CTRL_MON and MON
-	group to specify which of the events should have a counter assigned. The number
+	by a hardware counter. Use the assignment file found in each CTRL_MON and MON
+	group ("mbm_L3_assignments", or "mbm_NODE_assignments" in native mode when
+	NUMA node MSCs provide MBM) to specify which of the events should have a
+	counter assigned. The number
 	of counters available is described in the "num_mbm_cntrs" file. Changing the
 	mode may cause all counters on the resource to reset.
 
@@ -582,6 +584,37 @@ with the following files:
 	  ::
 
 	    # echo "default" > /sys/fs/resctrl/info/L3_MON/mbm_assign_mode
+
+"mbm_assign_scope_mode":
+	Exists in info/MB_MON when memory-bandwidth monitoring supports
+	assignable counters. Selects the name of the per-group assignment
+	file. The enclosed brackets indicate which mode is enabled. The
+	default is legacy.
+
+	::
+
+	  # cat /sys/fs/resctrl/info/MB_MON/mbm_assign_scope_mode
+	  [legacy] native
+
+	"legacy":
+		Always exposes "mbm_L3_assignments" in CTRL_MON and MON
+		groups. On platforms whose MBM counters are backed by NUMA
+		node MSCs the file still programs those node-scoped counters;
+		only the name is kept for compatibility.
+
+	"native":
+		Exposes "mbm_NODE_assignments" when NUMA node MSCs provide
+		MBM, otherwise "mbm_L3_assignments".
+
+	* To enable native assignment file names:
+	  ::
+
+	    # echo "native" > /sys/fs/resctrl/info/MB_MON/mbm_assign_scope_mode
+
+	* To restore the legacy name:
+	  ::
+
+	    # echo "legacy" > /sys/fs/resctrl/info/MB_MON/mbm_assign_scope_mode
 
 "num_mbm_cntrs":
 	The maximum number of counters (total of available and assigned counters) in
@@ -859,9 +892,12 @@ When monitoring is enabled all MON groups will also contain:
 
 When monitoring is enabled all MON groups may also contain:
 
-"mbm_L3_assignments":
+"mbm_L3_assignments" / "mbm_NODE_assignments":
 	Exists when "mbm_event" counter assignment mode is supported and lists the
-	counter assignment states of the group.
+	counter assignment states of the group. "mbm_L3_assignments" is the
+	legacy name and the default. Writing "native" to
+	info/MB_MON/mbm_assign_scope_mode replaces it with "mbm_NODE_assignments"
+	when MBM is backed by NUMA node MSCs. The file format is the same.
 
 	The assignment list is displayed in the following format:
 
