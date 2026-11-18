@@ -1679,44 +1679,21 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 	}
 }
 
-int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
-			    u32 closid, enum resctrl_conf_type t, u32 cfg_val)
+/*
+ * Apply one resctrl control value to a single PARTID of @dom.
+ *
+ * The PARTID's own current config is the starting point, so only the feature
+ * owned by @r changes. This avoids clearing other resources when the same
+ * component is exposed multiple times through resctrl, and, when CDP is
+ * enabled, avoids copying one PARTID's other controls (e.g. the DATA CPBM)
+ * onto its CODE/DATA sibling.
+ */
+static int mpam_resctrl_apply_one(struct rdt_resource *r,
+				  struct mpam_resctrl_dom *dom,
+				  struct mpam_props *cprops, u32 partid,
+				  u32 cfg_val)
 {
-	int err;
-	u32 partid;
-	struct mpam_config cfg;
-	struct mpam_props *cprops;
-	struct mpam_resctrl_res *res;
-	struct mpam_resctrl_dom *dom;
-
-	lockdep_assert_cpus_held();
-	lockdep_assert_irqs_enabled();
-
-	if (!mpam_is_enabled())
-		return -EINVAL;
-
-	/*
-	 * No need to check the CPU as mpam_apply_config() doesn't care, and
-	 * resctrl_arch_update_domains() relies on this.
-	 */
-	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
-	dom = container_of(d, struct mpam_resctrl_dom, resctrl_ctrl_dom);
-	cprops = &res->class->props;
-
-	if (mpam_resctrl_hide_cdp(r->rid))
-		t = CDP_DATA;
-
-	partid = resctrl_get_config_index(closid, t);
-	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r)) {
-		pr_debug("Not alloc capable or computed PARTID out of range\n");
-		return -EINVAL;
-	}
-
-	/*
-	 * Copy the current config to avoid clearing other resources when the
-	 * same component is exposed multiple times through resctrl.
-	 */
-	cfg = dom->ctrl_comp->cfg[partid];
+	struct mpam_config cfg = dom->ctrl_comp->cfg[partid];
 
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
@@ -1749,21 +1726,56 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 		return -EINVAL;
 	}
 
+	return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
+}
+
+int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
+			    u32 closid, enum resctrl_conf_type t, u32 cfg_val)
+{
+	int err;
+	u32 partid;
+	struct mpam_props *cprops;
+	struct mpam_resctrl_res *res;
+	struct mpam_resctrl_dom *dom;
+
+	lockdep_assert_cpus_held();
+	lockdep_assert_irqs_enabled();
+
+	if (!mpam_is_enabled())
+		return -EINVAL;
+
+	/*
+	 * No need to check the CPU as mpam_apply_config() doesn't care, and
+	 * resctrl_arch_update_domains() relies on this.
+	 */
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	dom = container_of(d, struct mpam_resctrl_dom, resctrl_ctrl_dom);
+	cprops = &res->class->props;
+
+	if (mpam_resctrl_hide_cdp(r->rid))
+		t = CDP_DATA;
+
+	partid = resctrl_get_config_index(closid, t);
+	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r)) {
+		pr_debug("Not alloc capable or computed PARTID out of range\n");
+		return -EINVAL;
+	}
+
 	/*
 	 * When CDP is enabled, but the resource doesn't support it, we need to
-	 * apply the same configuration to the other partid.
+	 * apply the same value to the other partid. Each partid keeps its own
+	 * other controls, e.g. a CODE CPBM that differs from the DATA one.
 	 */
 	if (mpam_resctrl_hide_cdp(r->rid)) {
 		partid = resctrl_get_config_index(closid, CDP_CODE);
-		err = mpam_apply_config(dom->ctrl_comp, partid, &cfg);
+		err = mpam_resctrl_apply_one(r, dom, cprops, partid, cfg_val);
 		if (err)
 			return err;
 
 		partid = resctrl_get_config_index(closid, CDP_DATA);
-		return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
 	}
 
-	return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
+	return mpam_resctrl_apply_one(r, dom, cprops, partid, cfg_val);
 }
 
 int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
