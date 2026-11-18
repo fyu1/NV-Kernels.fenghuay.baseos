@@ -4922,6 +4922,13 @@ void resctrl_online_cpu(unsigned int cpu)
 	mutex_lock(&rdtgroup_mutex);
 	/* The CPU is set in default rdtgroup after online. */
 	cpumask_set_cpu(cpu, &rdtgroup_default.cpu_mask);
+	/*
+	 * The CPU may have carried another group's closid as its per-CPU
+	 * default while it was offline. Membership is the default group
+	 * again, so install that group's closid/rmid. Otherwise a
+	 * default-group task on this CPU keeps the previous group's policy.
+	 */
+	update_closid_rmid(cpumask_of(cpu), &rdtgroup_default);
 	mutex_unlock(&rdtgroup_mutex);
 }
 
