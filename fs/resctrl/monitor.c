@@ -224,13 +224,38 @@ bool has_busy_rmid(struct rdt_l3_mon_domain *d)
 	return find_first_bit(d->rmid_busy_llc, idx_limit) != idx_limit;
 }
 
+/*
+ * errno when no free RMID can be given to @closid.
+ *
+ * -EBUSY: an RMID that this allocation could use is in limbo. It becomes
+ *         reusable once its occupancy falls below the threshold.
+ * -ENOSPC: every such RMID is already in use.
+ *
+ * Where the RMID depends on the CLOSID, only that CLOSID's limbo RMIDs
+ * can satisfy the allocation. An independent RMID can be reused with any
+ * CLOSID, so the global limbo count is what matters.
+ */
+static int rmid_alloc_unavailable(u32 closid)
+{
+	lockdep_assert_held(&rdtgroup_mutex);
+
+	if (__has_closid_num_dirty_rmid_array()) {
+		if (closid >= closids_supported())
+			return -ENOSPC;
+
+		return closid_num_dirty_rmid[closid] ? -EBUSY : -ENOSPC;
+	}
+
+	return rmid_limbo_count ? -EBUSY : -ENOSPC;
+}
+
 static struct rmid_entry *resctrl_find_free_rmid(u32 closid)
 {
 	struct rmid_entry *itr;
 	u32 itr_idx, cmp_idx;
 
 	if (list_empty(&rmid_free_lru))
-		return rmid_limbo_count ? ERR_PTR(-EBUSY) : ERR_PTR(-ENOSPC);
+		return ERR_PTR(rmid_alloc_unavailable(closid));
 
 	list_for_each_entry(itr, &rmid_free_lru, list) {
 		/*
@@ -247,7 +272,7 @@ static struct rmid_entry *resctrl_find_free_rmid(u32 closid)
 			return itr;
 	}
 
-	return ERR_PTR(-ENOSPC);
+	return ERR_PTR(rmid_alloc_unavailable(closid));
 }
 
 /**
