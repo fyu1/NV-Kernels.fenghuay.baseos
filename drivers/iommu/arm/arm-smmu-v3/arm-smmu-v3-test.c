@@ -612,6 +612,50 @@ arm_smmu_v3_write_ste_test_nested_s1bypass_to_s1dssbypass(struct kunit *test)
 						       NUM_EXPECTED_SYNCS(2));
 }
 
+static void arm_smmu_v3_test_cdtable_ste_keeps_mpam(struct kunit *test)
+{
+	struct arm_smmu_ste ste;
+	struct arm_smmu_device mpam_smmu = {
+		.features = ARM_SMMU_FEAT_MPAM | ARM_SMMU_FEAT_STALLS,
+	};
+	struct arm_smmu_master master = {
+		.cd_table = {
+			.cdtab_dma = fake_cdtab_dma_addr,
+			.s1cdmax = 0xFF,
+			.s1fmt = STRTAB_STE_0_S1FMT_64K_L2,
+		},
+		.smmu = &mpam_smmu,
+		.partid = 0x1234,
+		.pmg = 0x5a,
+	};
+
+	arm_smmu_make_cdtable_ste(&ste, &master, false,
+				  STRTAB_STE_1_S1DSS_SSID0);
+
+	KUNIT_EXPECT_EQ(test, 0x1234,
+			FIELD_GET(STRTAB_STE_4_PARTID, le64_to_cpu(ste.data[4])));
+	KUNIT_EXPECT_EQ(test, 0x5a,
+			FIELD_GET(STRTAB_STE_5_PMG, le64_to_cpu(ste.data[5])));
+}
+
+static void arm_smmu_v3_test_ste_used_covers_mpam(struct kunit *test)
+{
+	struct arm_smmu_ste ste;
+	__le64 used[NUM_ENTRY_QWORDS] = {};
+
+	arm_smmu_test_make_cdtable_ste(&ste, STRTAB_STE_1_S1DSS_SSID0,
+				       fake_cdtab_dma_addr, 0);
+	ste.data[4] = cpu_to_le64(FIELD_PREP(STRTAB_STE_4_PARTID, 0x11));
+	ste.data[5] = cpu_to_le64(FIELD_PREP(STRTAB_STE_5_PMG, 0x7));
+
+	arm_smmu_get_ste_used(ste.data, used);
+
+	KUNIT_EXPECT_EQ(test, STRTAB_STE_4_PARTID,
+			le64_to_cpu(used[4]) & STRTAB_STE_4_PARTID);
+	KUNIT_EXPECT_EQ(test, STRTAB_STE_5_PMG,
+			le64_to_cpu(used[5]) & STRTAB_STE_5_PMG);
+}
+
 static void arm_smmu_v3_write_cd_test_sva_clear(struct kunit *test)
 {
 	struct arm_smmu_cd cd = {};
@@ -660,6 +704,8 @@ static struct kunit_case arm_smmu_v3_test_cases[] = {
 	KUNIT_CASE(arm_smmu_v3_write_ste_test_s2_to_s1_stall),
 	KUNIT_CASE(arm_smmu_v3_write_ste_test_nested_s1dssbypass_to_s1bypass),
 	KUNIT_CASE(arm_smmu_v3_write_ste_test_nested_s1bypass_to_s1dssbypass),
+	KUNIT_CASE(arm_smmu_v3_test_cdtable_ste_keeps_mpam),
+	KUNIT_CASE(arm_smmu_v3_test_ste_used_covers_mpam),
 	KUNIT_CASE(arm_smmu_v3_write_cd_test_sva_clear),
 	KUNIT_CASE(arm_smmu_v3_write_cd_test_sva_release),
 	{},

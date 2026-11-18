@@ -1091,6 +1091,15 @@ void arm_smmu_get_ste_used(const __le64 *ent, __le64 *used_bits)
 
 	if (cfg == STRTAB_STE_0_CFG_BYPASS)
 		used_bits[1] |= cpu_to_le64(STRTAB_STE_1_SHCFG);
+
+	/*
+	 * PARTID/PMG label every transaction from a valid STE when MPAM is
+	 * implemented. The builders program them from the master, so they must
+	 * be used bits: otherwise arm_smmu_write_entry() treats them as
+	 * ignored and a rebuild can clear a live setting.
+	 */
+	used_bits[4] |= cpu_to_le64(STRTAB_STE_4_PARTID);
+	used_bits[5] |= cpu_to_le64(STRTAB_STE_5_PMG);
 }
 EXPORT_SYMBOL_IF_KUNIT(arm_smmu_get_ste_used);
 
@@ -1683,6 +1692,23 @@ void arm_smmu_make_bypass_ste(struct arm_smmu_device *smmu,
 }
 EXPORT_SYMBOL_IF_KUNIT(arm_smmu_make_bypass_ste);
 
+/*
+ * Copy the master's MPAM labels into STE words 4 and 5. Callers memset the
+ * STE first, so omitting this drops a PARTID/PMG that arm_smmu_group_set_mpam()
+ * already programmed.
+ */
+static void arm_smmu_make_ste_mpam(struct arm_smmu_ste *target,
+				   struct arm_smmu_master *master)
+{
+	if (!(master->smmu->features & ARM_SMMU_FEAT_MPAM))
+		return;
+
+	target->data[4] = cpu_to_le64(FIELD_PREP(STRTAB_STE_4_PARTID,
+						 master->partid));
+	target->data[5] = cpu_to_le64(FIELD_PREP(STRTAB_STE_5_PMG,
+						 master->pmg));
+}
+
 VISIBLE_IF_KUNIT
 void arm_smmu_make_cdtable_ste(struct arm_smmu_ste *target,
 			       struct arm_smmu_master *master, bool ats_enabled,
@@ -1738,6 +1764,8 @@ void arm_smmu_make_cdtable_ste(struct arm_smmu_ste *target,
 		target->data[2] =
 			cpu_to_le64(FIELD_PREP(STRTAB_STE_2_S2VMID, 0));
 	}
+
+	arm_smmu_make_ste_mpam(target, master);
 }
 EXPORT_SYMBOL_IF_KUNIT(arm_smmu_make_cdtable_ste);
 
@@ -1789,6 +1817,8 @@ void arm_smmu_make_s2_domain_ste(struct arm_smmu_ste *target,
 
 	target->data[3] = cpu_to_le64(pgtbl_cfg->arm_lpae_s2_cfg.vttbr &
 				      STRTAB_STE_3_S2TTB_MASK);
+
+	arm_smmu_make_ste_mpam(target, master);
 }
 EXPORT_SYMBOL_IF_KUNIT(arm_smmu_make_s2_domain_ste);
 
