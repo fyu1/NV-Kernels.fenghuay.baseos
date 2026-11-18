@@ -4027,6 +4027,24 @@ static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
 	}
 }
 
+/*
+ * Initialize a percentage resource that is not MBA (e.g. L3_MAX) with its
+ * default, the resource maximum. These are limits, not bitmaps: the CBM
+ * initializer ORs other groups' values together, which is meaningless for a
+ * percentage and can produce an out of range value.
+ */
+static void rdtgroup_init_percent(struct resctrl_schema *s)
+{
+	struct resctrl_staged_config *cfg;
+	struct rdt_ctrl_domain *d;
+
+	list_for_each_entry(d, &s->res->ctrl_domains, hdr.list) {
+		cfg = &d->staged_config[s->conf_type];
+		cfg->new_ctrl = resctrl_get_resource_default_ctrl(s->res);
+		cfg->have_new_ctrl = true;
+	}
+}
+
 /* Initialize MB_HLIM resource with default hardlim off (0). */
 static void rdtgroup_init_mb_hlim(struct resctrl_schema *s)
 {
@@ -4058,6 +4076,8 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 				continue;
 		} else if (r->rid == RDT_RESOURCE_MB_HLIM) {
 			rdtgroup_init_mb_hlim(s);
+		} else if (s->schema_fmt == RESCTRL_SCHEMA_PERCENT) {
+			rdtgroup_init_percent(s);
 		} else {
 			ret = rdtgroup_init_cat(s, rdtgrp->closid);
 			if (ret < 0)
