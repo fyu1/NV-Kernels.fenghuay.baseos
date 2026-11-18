@@ -782,6 +782,7 @@ static void mbm_update_one_event(struct rdt_resource *r, struct rdt_l3_mon_domai
 				 struct rdtgroup *rdtgrp, enum resctrl_event_id evtid)
 {
 	struct rmid_read rr = {0};
+	int ret;
 
 	rr.r = r;
 	rr.hdr = &d->hdr;
@@ -797,13 +798,15 @@ static void mbm_update_one_event(struct rdt_resource *r, struct rdt_l3_mon_domai
 		}
 	}
 
-	__mon_event_count(rdtgrp, &rr);
+	ret = __mon_event_count(rdtgrp, &rr);
 
 	/*
-	 * If the software controller is enabled, compute the
-	 * bandwidth for this event id.
+	 * If the software controller is enabled, compute the bandwidth for
+	 * this event. A failed read (for example no counter assigned) must
+	 * not be treated as a sample: that would replace the last real rate
+	 * with a bogus delta.
 	 */
-	if (is_mba_sc(NULL))
+	if (is_mba_sc(NULL) && !ret)
 		mbm_bw_count(rdtgrp, &rr);
 
 	if (rr.arch_mon_ctx)
@@ -965,10 +968,14 @@ void mbm_setup_overflow_handler(struct rdt_l3_mon_domain *dom, unsigned long del
 	/*
 	 * When a domain comes online there is no guarantee the filesystem is
 	 * mounted. If not, there is no need to catch counter overflow.
-	 * Some architecture may have ~64bit counters, and can ignore overflow.
+	 * Some architectures have ~64bit counters and can ignore overflow, but
+	 * the mba_MBps software controller uses this same once-per-second
+	 * worker to sample bandwidth and adjust the percentage. Run it for
+	 * that even when the counters themselves cannot overflow.
 	 */
-	if (!resctrl_mounted || !resctrl_arch_mon_capable() ||
-	    !resctrl_arch_mon_can_overflow())
+	if (!resctrl_mounted || !resctrl_arch_mon_capable())
+		return;
+	if (!resctrl_arch_mon_can_overflow() && !is_mba_sc(NULL))
 		return;
 	cpu = cpumask_any_housekeeping(&dom->hdr.cpu_mask, exclude_cpu);
 	dom->mbm_work_cpu = cpu;

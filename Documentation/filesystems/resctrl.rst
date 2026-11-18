@@ -47,7 +47,12 @@ mount options are:
 	Enable code/data prioritization in L2 cache allocations.
 "mba_MBps":
 	Enable the MBA Software Controller(mba_sc) to specify MBA
-	bandwidth in MiBps
+	bandwidth in MiBps. The controller samples MBM once a second and
+	adjusts the hardware percentage toward that target, including on
+	platforms whose counters do not overflow. When MBM counters are
+	assignable in a fixed mode, a group is adjusted only while it
+	holds a counter for the selected event; a group that did not get
+	one is left unthrottled.
 "debug":
 	Make debug files accessible. Available debug files are annotated with
 	"Available only with debug option".
