@@ -4612,6 +4612,23 @@ static int rdtgroup_rename(struct kernfs_node *kn,
 	}
 
 	/*
+	 * When the RMID is only unique together with the CLOSID, a MON group's
+	 * monitor index is (parent CLOSID, RMID). Moving it under a parent with
+	 * a different CLOSID changes that index, so the group would need a new
+	 * RMID and its monitoring data and tasks (which carry the old pair)
+	 * could not be preserved. Keeping the old RMID instead leaves the
+	 * moved group's tasks behind and lets a new group in the destination
+	 * parent be allocated the same index. Refuse the move.
+	 */
+	if (IS_ENABLED(CONFIG_RESCTRL_RMID_DEPENDS_ON_CLOSID) &&
+	    resctrl_arch_mon_capable() &&
+	    rdtgrp->mon.parent != new_prdtgrp) {
+		rdt_last_cmd_puts("Cannot move MON group: its RMID depends on the CLOSID\n");
+		ret = -EPERM;
+		goto out;
+	}
+
+	/*
 	 * Allocate the cpumask for use in mongrp_reparent() to avoid the
 	 * possibility of failing to allocate it after kernfs_rename() has
 	 * succeeded.
