@@ -11,6 +11,9 @@
 
 #ifdef CONFIG_ARCH_HAS_CPU_RESCTRL
 #include <asm/resctrl.h>
+#else
+struct task_struct;
+static inline void resctrl_arch_task_fork(struct task_struct *child) { }
 #endif
 
 /* CLOSID, RMID value used by the default control group */

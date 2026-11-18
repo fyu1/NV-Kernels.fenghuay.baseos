@@ -150,6 +150,18 @@ static inline void resctrl_arch_set_closid_rmid(struct task_struct *tsk,
 	WRITE_ONCE(tsk->rmid, rmid);
 }
 
+/*
+ * dup_task_struct() copies the parent's closid/rmid into the child well before
+ * the child is visible to resctrl's task walks. Called under the tasklist_lock
+ * write lock that publishes the child, so a concurrent resctrl group move or
+ * removal has either already updated the parent or will see the child.
+ */
+static inline void resctrl_arch_task_fork(struct task_struct *child)
+{
+	resctrl_arch_set_closid_rmid(child, READ_ONCE(current->closid),
+				     READ_ONCE(current->rmid));
+}
+
 static inline bool resctrl_arch_match_closid(struct task_struct *tsk, u32 closid)
 {
 	return READ_ONCE(tsk->closid) == closid;
@@ -201,6 +213,7 @@ void resctrl_cpu_detect(struct cpuinfo_x86 *c);
 #else
 
 static inline void resctrl_arch_sched_in(struct task_struct *tsk) {}
+static inline void resctrl_arch_task_fork(struct task_struct *child) {}
 static inline void resctrl_cpu_detect(struct cpuinfo_x86 *c) {}
 
 #endif /* CONFIG_X86_CPU_RESCTRL */

@@ -62,6 +62,7 @@
 #include <linux/task_io_accounting_ops.h>
 #include <linux/rcupdate.h>
 #include <linux/ptrace.h>
+#include <linux/resctrl.h>
 #include <linux/mount.h>
 #include <linux/audit.h>
 #include <linux/memcontrol.h>
@@ -2379,6 +2380,16 @@ __latent_entropy struct task_struct *copy_process(
 	 * Need tasklist lock for parent etc handling!
 	 */
 	write_lock_irq(&tasklist_lock);
+
+	/*
+	 * dup_task_struct() copied the parent's resctrl closid/rmid long ago.
+	 * resctrl moves tasks between groups (and removes groups) under a
+	 * tasklist_lock read lock, but only sees tasks that are already
+	 * visible. A group removed after the copy but before this point would
+	 * leave the child with a stale, possibly reused, closid. Refresh it
+	 * now; once the child is published resctrl will find it itself.
+	 */
+	resctrl_arch_task_fork(p);
 
 	/* CLONE_PARENT re-uses the old parent */
 	if (clone_flags & (CLONE_PARENT|CLONE_THREAD)) {

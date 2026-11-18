@@ -63,6 +63,19 @@ static inline void mpam_set_task_partid_pmg(struct task_struct *tsk,
 	WRITE_ONCE(task_thread_info(tsk)->mpam_partid_pmg, regval);
 }
 
+/*
+ * dup_task_struct() copies the parent's PARTID/PMG into the child well before
+ * the child is visible to resctrl's task walks. Called under the tasklist_lock
+ * write lock that publishes the child, so a concurrent resctrl group move or
+ * removal has either already updated the parent or will see the child.
+ */
+static inline void mpam_fork_sync(struct task_struct *child,
+				  struct task_struct *parent)
+{
+	WRITE_ONCE(task_thread_info(child)->mpam_partid_pmg,
+		   mpam_get_regval(parent));
+}
+
 static inline void mpam_thread_switch(struct task_struct *tsk)
 {
 	u64 oldregval;
